@@ -1,0 +1,14 @@
+# adoqr code owners
+#
+# These owners will be requested for review automatically when a PR
+# touches the matching path. The repository owner is the default for
+# all files.
+
+* @jasonmoodie @aj-enns
+
+# Critical security and release surfaces — keep the same owner for now;
+# add additional reviewers as the project grows.
+/.github/workflows/   @jasonmoodie @aj-enns
+/invoke-adoqr.ps1   @jasonmoodie @aj-enns
+/schemas/             @jasonmoodie @aj-enns
+/SECURITY.md          @jasonmoodie @aj-enns

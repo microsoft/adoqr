@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/microsoft/adoqr/main/schemas/scan.schema.json",
+  "title": "Azure DevOps Quick Review scan document",
+  "description": "Canonical JSON document emitted by adoqr when -OutputFormat includes 'json' or 'all'. Mirrors the shape of the Markdown and HTML reports so downstream tools, pipelines, and Copilot/MCP integrations can consume adoqr results in a structured form.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "meta",
+    "organization",
+    "summary",
+    "controls"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri"
+    },
+    "schemaVersion": {
+      "description": "Major.minor of this document's schema. Bumped when the shape changes in a backwards-incompatible way.",
+      "type": "string",
+      "const": "1.0"
+    },
+    "meta": {
+      "type": "object",
+      "required": [
+        "tool",
+        "generator",
+        "generatedAt"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "const": "adoqr"
+        },
+        "generator": {
+          "type": "string",
+          "description": "Name (and optional version) of the script or module that produced this document."
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 UTC timestamp of when the assessment finished."
+        },
+        "elapsedSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Wall-clock time the assessment took to run, in seconds."
+        }
+      }
+    },
+    "organization": {
+      "type": "object",
+      "required": [
+        "name",
+        "url"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "ADO organization short name (e.g. 'MyOrg')."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "ADO organization URL (e.g. 'https://dev.azure.com/MyOrg')."
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "description": "One entry per project that was assessed. Empty when only the org-level scan ran.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "summary"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/definitions/summary"
+          }
+        }
+      }
+    },
+    "summary": {
+      "$ref": "#/definitions/summary",
+      "description": "Aggregate pass/fail/not-checked counts across the org and every project."
+    },
+    "controls": {
+      "type": "array",
+      "description": "Flat list of every control evaluated. Use the 'scope' object to attribute each control to the org or a specific project.",
+      "items": {
+        "$ref": "#/definitions/control"
+      }
+    }
+  },
+  "definitions": {
+    "summary": {
+      "type": "object",
+      "required": [
+        "pass",
+        "fail",
+        "notChecked"
+      ],
+      "properties": {
+        "pass": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fail": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notChecked": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "severity",
+        "category",
+        "control",
+        "finding",
+        "scope"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Control identifier, e.g. 'AUTH-01', 'BUILD-04'."
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT CHECKED"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "High",
+            "Medium",
+            "Low"
+          ]
+        },
+        "category": {
+          "description": "ADO-native best-practice category. Stable across versions; new categories will only be added in a minor schema bump.",
+          "enum": [
+            "Identity & Access",
+            "Governance",
+            "Audit Log",
+            "Pipelines & Actions",
+            "Secrets & Credentials",
+            "Repos & Branch Protection",
+            "Service Connections",
+            "Resources",
+            "PAT Hygiene",
+            "Other"
+          ]
+        },
+        "control": {
+          "type": "string",
+          "description": "Short human-readable name of the best practice."
+        },
+        "finding": {
+          "type": "string",
+          "description": "Free-form description of what was found, including counts, names, and remediation hints."
+        },
+        "scope": {
+          "type": "object",
+          "required": [
+            "type",
+            "organization"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "organization",
+                "project"
+              ]
+            },
+            "organization": {
+              "type": "string"
+            },
+            "project": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

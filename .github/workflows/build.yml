@@ -1,0 +1,74 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: PSScriptAnalyzer + Pester (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PowerShell modules
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -MinimumVersion 1.21.0 -Scope CurrentUser -Force -ErrorAction Stop
+          Install-Module -Name Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck -ErrorAction Stop
+          Get-Module -ListAvailable PSScriptAnalyzer, Pester | Select-Object Name, Version | Format-Table -AutoSize
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Import-Module PSScriptAnalyzer -Force
+          $issues = Invoke-ScriptAnalyzer `
+            -Path . `
+            -Recurse `
+            -Settings ./PSScriptAnalyzerSettings.psd1 `
+            -ExcludeRule PSAvoidUsingCmdletAliases
+
+          if ($issues) {
+            $issues | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
+            $errors   = @($issues | Where-Object Severity -eq 'Error')
+            $warnings = @($issues | Where-Object Severity -eq 'Warning')
+            Write-Host "PSScriptAnalyzer: $($errors.Count) error(s), $($warnings.Count) warning(s)."
+            if ($errors.Count -gt 0) { exit 1 }
+          }
+          else {
+            Write-Host 'PSScriptAnalyzer: clean.' -ForegroundColor Green
+          }
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.0.0 -Force
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path        = './tests'
+          $cfg.Run.Exit        = $true
+          $cfg.Output.Verbosity = 'Detailed'
+          $cfg.TestResult.Enabled       = $true
+          $cfg.TestResult.OutputFormat  = 'NUnitXml'
+          $cfg.TestResult.OutputPath    = './testResults.xml'
+          Invoke-Pester -Configuration $cfg
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: testResults.xml
+          if-no-files-found: ignore
