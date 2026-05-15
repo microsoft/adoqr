@@ -3058,19 +3058,91 @@ Write-Host ""
 # Set default org for az devops commands
 az devops configure --defaults organization=$OrgUrl 2>&1 | Out-Null
 
-# Determine projects
-if ($Project) {
-    $projectNames = $Project
-} else {
-    Write-Host "No projects specified — discovering all projects..." -ForegroundColor Yellow
-    $allProjects = Invoke-AzCli -Command "devops project list --org $OrgUrl -o json"
-    if ($allProjects -and $allProjects.value) {
-        $projectNames = @($allProjects.value | ForEach-Object { $_.name })
-        Write-Host "  Found $($projectNames.Count) project(s): $($projectNames -join ', ')" -ForegroundColor Green
-    } else {
-        Write-Warning "Could not list projects. Proceeding with org-only assessment."
-        $projectNames = @()
+# Validate organization and discover projects in one call.
+# Using Invoke-WebRequest directly so we can distinguish 401/403/404 vs other failures
+# and produce actionable guidance for misspelled org / project names.
+Write-Host "Validating organization and discovering projects..." -ForegroundColor Yellow
+$projectsApi = "$OrgUrl/_apis/projects?api-version=7.1-preview.4&`$top=1000&stateFilter=all"
+$discoveredNames = @()
+try {
+    $resp = Invoke-WebRequest -Uri $projectsApi -Headers $header -Method GET -UseBasicParsing -ErrorAction Stop
+    $data = $resp.Content | ConvertFrom-Json
+    $discoveredNames = @($data.value | ForEach-Object { $_.name } | Sort-Object)
+}
+catch {
+    $status = 0
+    if ($_.Exception.Response) { try { $status = [int]$_.Exception.Response.StatusCode } catch { $status = 0 } }
+    switch ($status) {
+        401 {
+            Write-Error "Authentication failed (HTTP 401) for '$OrgUrl'. Run 'az login' and confirm the active tenant with 'az account show'."
+            return
+        }
+        403 {
+            Write-Error "Access denied (HTTP 403) to organization '$OrgShortName'. The signed-in identity does not have permission to list projects. Ensure it is at least a Project Collection Valid User."
+            return
+        }
+        404 {
+            Write-Error @"
+Organization '$OrgShortName' was not found (HTTP 404).
+
+Resolved URL: $OrgUrl
+
+Check that:
+  - The organization name is spelled correctly (you passed: '$Organization')
+  - The signed-in account has access (verify with: az account show)
+  - If using a legacy *.visualstudio.com URL, pass the full URL form
+"@
+            return
+        }
+        default {
+            Write-Error "Failed to query organization '$OrgShortName' at $projectsApi`: $($_.Exception.Message)"
+            return
+        }
     }
+}
+
+if ($discoveredNames.Count -eq 0) {
+    Write-Warning "Organization '$OrgShortName' returned no projects. It may be empty, or your account may lack visibility."
+}
+
+# Resolve -Project filter against discovered list (case-insensitive, with suggestions)
+if ($Project) {
+    $resolved = New-Object 'System.Collections.Generic.List[string]'
+    $unknown  = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($req in $Project) {
+        $match = $discoveredNames | Where-Object { $_ -ieq $req } | Select-Object -First 1
+        if ($match) { [void]$resolved.Add($match) } else { [void]$unknown.Add($req) }
+    }
+    if ($unknown.Count -gt 0) {
+        $lines = foreach ($u in $unknown) {
+            # Substring contains either direction
+            $suggestions = @($discoveredNames | Where-Object { $_ -like "*$u*" -or $u -like "*$_*" } | Select-Object -First 3)
+            if ($suggestions.Count -eq 0 -and $u.Length -ge 2) {
+                # Fallback: shared prefix (first 2-3 chars)
+                $prefix = $u.Substring(0, [math]::Min(3, $u.Length))
+                $suggestions = @($discoveredNames | Where-Object { $_ -like "$prefix*" } | Select-Object -First 3)
+            }
+            if ($suggestions.Count -gt 0) {
+                "  - '$u' (did you mean: $($suggestions -join ', ')?)"
+            } else {
+                "  - '$u'"
+            }
+        }
+        $availableSample = if ($discoveredNames.Count -le 25) { $discoveredNames -join ', ' } else { ($discoveredNames | Select-Object -First 25) -join ', ' + ", ... (+$($discoveredNames.Count - 25) more)" }
+        Write-Error @"
+The following project(s) were not found in organization '$OrgShortName':
+$($lines -join "`n")
+
+Available projects ($($discoveredNames.Count)):
+  $availableSample
+"@
+        return
+    }
+    $projectNames = @($resolved)
+    Write-Host "  Validated $($projectNames.Count) project(s): $($projectNames -join ', ')" -ForegroundColor Green
+} else {
+    $projectNames = $discoveredNames
+    Write-Host "  Found $($projectNames.Count) project(s) in '$OrgShortName'." -ForegroundColor Green
 }
 Write-Host ""
 
