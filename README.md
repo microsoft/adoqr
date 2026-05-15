@@ -17,6 +17,10 @@ in VS Code.
 
 ## What adoqr Checks
 
+> **Browse the full controls reference:** [docs/controls.html](docs/controls.html)
+> — a searchable catalogue of every control evaluated by adoqr, with descriptions,
+> step-by-step remediation, and links to Microsoft Learn.
+
 Azure DevOps Quick Review evaluates your ADO resources across the following
 areas, with 115+ individual best-practice checks:
 
