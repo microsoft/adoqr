@@ -17,7 +17,7 @@ in VS Code.
 
 ## What adoqr Checks
 
-> **Browse the full controls reference:** [docs/controls.html](docs/controls.html)
+> **Browse the full controls reference:** [Controls reference →](https://microsoft.github.io/adoqr/controls.html)
 > — a searchable catalogue of every control evaluated by adoqr, with descriptions,
 > step-by-step remediation, and links to Microsoft Learn.
 
