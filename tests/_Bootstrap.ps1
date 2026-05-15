@@ -22,6 +22,7 @@ $wantedFns = @(
     'New-ControlResult'
     'Test-PolicyAppliesToBranch'
     'Export-AssessmentToJson'
+    'Import-AdoqrSettings'
 )
 
 $funcs = $tree.FindAll({

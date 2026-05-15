@@ -2993,9 +2993,60 @@ function Test-OrgWidePats {
     return $results
 }
 
+function Import-AdoqrSettings {
+    <#
+    .SYNOPSIS
+        Loads optional user settings from adoqr.settings.psd1.
+    .DESCRIPTION
+        Reads a PowerShell data file at the specified path and returns a
+        hashtable of validated configuration overrides.  If the file does not
+        exist an empty hashtable is returned so callers need not null-check.
+    .PARAMETER Path
+        Full path to the settings file.  Defaults to adoqr.settings.psd1 in
+        the same directory as invoke-adoqr.ps1.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$Path = (Join-Path $PSScriptRoot 'adoqr.settings.psd1')
+    )
+
+    if (-not (Test-Path $Path)) {
+        return @{}
+    }
+
+    try {
+        $data = Import-PowerShellDataFile -Path $Path -ErrorAction Stop
+    }
+    catch {
+        Write-Warning "Could not read settings file '$Path': $_"
+        return @{}
+    }
+
+    $settings = @{}
+
+    if ($data.ContainsKey('InactiveRepoDays')) {
+        $val = $data['InactiveRepoDays']
+        if ($val -is [int] -and $val -gt 0) {
+            $settings['InactiveRepoDays'] = $val
+        }
+        else {
+            Write-Warning "Settings: 'InactiveRepoDays' must be a positive integer. Ignoring value '$val'."
+        }
+    }
+
+    return $settings
+}
+
 #endregion
 
 #region Main
+
+# Apply optional user settings (adoqr.settings.psd1 next to this script)
+$_userSettings = Import-AdoqrSettings -Path (Join-Path $PSScriptRoot 'adoqr.settings.psd1')
+if ($_userSettings.ContainsKey('InactiveRepoDays')) {
+    $script:InactiveRepoDays = $_userSettings['InactiveRepoDays']
+    Write-Verbose "Settings: InactiveRepoDays overridden to $($script:InactiveRepoDays) (from adoqr.settings.psd1)"
+}
 
 # Normalize organization URL
 if ($Organization -notmatch '^https?://') {
