@@ -22,6 +22,8 @@ $wantedFns = @(
     'New-ControlResult'
     'Test-PolicyAppliesToBranch'
     'Export-AssessmentToJson'
+    'Get-PriorScanRuns'
+    'Build-ComparisonSectionHtml'
 )
 
 $funcs = $tree.FindAll({

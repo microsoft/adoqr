@@ -573,6 +573,268 @@ function Export-AssessmentToJson {
     [System.IO.File]::WriteAllText($FilePath, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Get-PriorScanRuns {
+    <#
+    .SYNOPSIS
+        Discovers prior adoqr scan JSON files from the assessments root directory.
+    .DESCRIPTION
+        Searches sibling run folders under AssessmentsRoot for files matching
+        <OrgSafeName>-scan.json and returns them sorted newest-first.
+        Only files that conform to scan.schema.json (schemaVersion 1.0) are returned.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$AssessmentsRoot,
+        [Parameter(Mandatory)][string]$OrgSafeName
+    )
+
+    $runs = [System.Collections.Generic.List[PSCustomObject]]::new()
+    if (-not (Test-Path $AssessmentsRoot -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $scanFiles = Get-ChildItem -Path $AssessmentsRoot -Filter "$OrgSafeName-scan.json" -Recurse -Depth 2 -ErrorAction SilentlyContinue
+
+    foreach ($f in $scanFiles) {
+        try {
+            $raw = Get-Content -Raw $f.FullName -ErrorAction SilentlyContinue
+            if (-not $raw) { continue }
+            $doc = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if (-not $doc -or -not $doc.meta -or -not $doc.meta.generatedAt) { continue }
+            $ts = [datetime]::MinValue
+            if (-not [datetime]::TryParse($doc.meta.generatedAt, [ref]$ts)) { continue }
+            $runs.Add([PSCustomObject]@{
+                RunId       = $f.Directory.Name
+                GeneratedAt = $ts
+                FilePath    = $f.FullName
+                Doc         = $doc
+            })
+        }
+        catch { <# Skip files that cannot be read or parsed #> }
+    }
+
+    $runs | Sort-Object GeneratedAt -Descending
+}
+
+function Build-ComparisonSectionHtml {
+    <#
+    .SYNOPSIS
+        Builds the Run Comparison HTML section embedded in the executive summary.
+    .DESCRIPTION
+        Embeds all scan run data as JSON and generates self-contained JavaScript
+        that computes improved / regressed / persistent-fail / new / removed
+        controls between any two selected runs.  Requires 2+ runs to activate;
+        renders a "no data" placeholder otherwise.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][PSCustomObject[]]$RunsData
+    )
+
+    if (-not $RunsData -or $RunsData.Count -eq 0) {
+        $RunsData = @()
+    }
+
+    # Build a lightweight payload — strip verbose finding text to keep HTML size small.
+    $lightweight = @($RunsData | ForEach-Object {
+        [PSCustomObject]@{
+            runId       = $_.runId
+            generatedAt = $_.generatedAt
+            summary     = $_.summary
+            controls    = @($_.controls | ForEach-Object {
+                [PSCustomObject]@{
+                    id       = $_.id
+                    status   = $_.status
+                    severity = $_.severity
+                    control  = $_.control
+                    scope    = $_.scope
+                }
+            })
+        }
+    })
+
+    $runsJson = $lightweight | ConvertTo-Json -Depth 10 -Compress
+    if (-not $runsJson) { $runsJson = '[]' }
+    # Wrap scalar (single object) in an array
+    if ($runsJson -and $runsJson.TrimStart()[0] -ne '[') { $runsJson = "[$runsJson]" }
+    # Prevent premature script-tag closure inside JSON string values
+    $runsJson = $runsJson -replace '</script>', '<\/script>'
+
+    # JavaScript — written as a literal here-string so PowerShell does not expand $ signs.
+    $jsCode = @'
+(function () {
+  var runs = window.__adoqrRuns || [];
+  var elNoData  = document.getElementById('cmp-nodata');
+  var elUi      = document.getElementById('cmp-ui');
+  var elResult  = document.getElementById('cmp-result');
+  var selA      = document.getElementById('cmp-run-a');
+  var selB      = document.getElementById('cmp-run-b');
+  if (!elNoData || !elUi || !elResult || !selA || !selB) return;
+  if (runs.length < 2) return;
+  elNoData.style.display = 'none';
+  elUi.style.display = 'block';
+
+  runs.forEach(function (r, i) {
+    var ts  = r.generatedAt ? r.generatedAt.substring(0, 19).replace('T', ' ') + ' UTC' : r.runId;
+    var lbl = ts + '  \u2014  ' + r.runId;
+    selA.add(new Option(lbl, String(i)));
+    selB.add(new Option(lbl, String(i)));
+  });
+  selA.value = '0';
+  selB.value = '1';
+
+  function sevOrd(s) { return s === 'High' ? 0 : s === 'Medium' ? 1 : 2; }
+  function sevClr(s) { return s === 'High' ? 'var(--fail)' : s === 'Medium' ? 'var(--warn)' : 'var(--info)'; }
+  function sevBg(s)  { return s === 'High' ? 'rgba(239,68,68,.12)' : s === 'Medium' ? 'rgba(245,158,11,.12)' : 'rgba(59,130,246,.12)'; }
+  function esc(v)    { return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function ctrlKey(c) {
+    var sc = c.scope ? (c.scope.type + '|' + (c.scope.project || '')) : '';
+    return c.id + '|' + sc;
+  }
+  function scopeLbl(c) { return c.scope && c.scope.type === 'project' ? esc(c.scope.project || '') : 'Org'; }
+
+  function renderRow(c, statusHtml) {
+    return '<tr>'
+      + '<td><strong>' + esc(c.id) + '</strong><br><span style="color:var(--text2);font-size:.85rem">' + esc(c.control || '') + '</span></td>'
+      + '<td><span style="display:inline-block;padding:.15rem .5rem;border-radius:999px;font-size:.75rem;font-weight:700;text-transform:uppercase;background:' + sevBg(c.severity) + ';color:' + sevClr(c.severity) + '">' + esc(c.severity) + '</span></td>'
+      + '<td>' + scopeLbl(c) + '</td>'
+      + '<td>' + statusHtml + '</td>'
+      + '</tr>';
+  }
+
+  function renderGroup(title, rows, emptyMsg, borderClr) {
+    var h = '<div class="cmp-group"><div class="cmp-group-hdr" style="border-left-color:' + borderClr + '">'
+          + '<span class="cmp-cnt">' + rows.length + '</span> ' + title + '</div>';
+    if (rows.length === 0) {
+      h += '<p style="color:var(--text2);font-size:.9rem;padding:.25rem 0 .75rem">' + emptyMsg + '</p>';
+    } else {
+      h += '<div class="tbl-wrap"><table><thead><tr><th>Control</th><th>Severity</th><th>Scope</th><th>Change</th></tr></thead>'
+         + '<tbody>' + rows.join('') + '</tbody></table></div>';
+    }
+    return h + '</div>';
+  }
+
+  function run() {
+    var ai = parseInt(selA.value, 10);
+    var bi = parseInt(selB.value, 10);
+    if (ai === bi) {
+      elResult.innerHTML = '<p style="color:var(--text2);margin:.5rem 0">Please select two different runs to compare.</p>';
+      return;
+    }
+    var a = runs[ai];
+    var b = runs[bi];
+    var aMap = {}, bMap = {};
+    (a.controls || []).forEach(function (c) { aMap[ctrlKey(c)] = c; });
+    (b.controls || []).forEach(function (c) { bMap[ctrlKey(c)] = c; });
+
+    var improved = [], regressed = [], persist = [], added = [], removed = [];
+    Object.keys(aMap).forEach(function (k) {
+      var ac = aMap[k], bc = bMap[k];
+      if (!bc)                                        { added.push(ac); return; }
+      if (bc.status !== 'PASS' && ac.status === 'PASS')  { improved.push({ a: ac, b: bc }); }
+      else if (bc.status === 'PASS' && ac.status === 'FAIL') { regressed.push({ a: ac, b: bc }); }
+      else if (ac.status === 'FAIL' && bc.status === 'FAIL') { persist.push({ a: ac, b: bc }); }
+    });
+    Object.keys(bMap).forEach(function (k) { if (!aMap[k]) removed.push(bMap[k]); });
+
+    function srt(arr, fn) { arr.sort(function (x, y) { return sevOrd(fn(x).severity) - sevOrd(fn(y).severity); }); }
+    srt(improved, function (x) { return x.a; });
+    srt(regressed, function (x) { return x.a; });
+    srt(persist,   function (x) { return x.a; });
+    added.sort(function (x, y)   { return sevOrd(x.severity) - sevOrd(y.severity); });
+    removed.sort(function (x, y) { return sevOrd(x.severity) - sevOrd(y.severity); });
+
+    var aSum = a.summary || {}, bSum = b.summary || {};
+    var aT = (aSum.pass || 0) + (aSum.fail || 0) + (aSum.notChecked || 0);
+    var bT = (bSum.pass || 0) + (bSum.fail || 0) + (bSum.notChecked || 0);
+    var aPct = aT > 0 ? Math.round((aSum.pass || 0) * 100 / aT) : 0;
+    var bPct = bT > 0 ? Math.round((bSum.pass || 0) * 100 / bT) : 0;
+    var dPct  = aPct - bPct;
+    var dFail = (aSum.fail || 0) - (bSum.fail || 0);
+    var pArrow = dPct  > 0 ? '\u25B2' : dPct  < 0 ? '\u25BC' : '\u25AC';
+    var pClr   = dPct  > 0 ? 'var(--pass)' : dPct  < 0 ? 'var(--fail)' : 'var(--text2)';
+    var fArrow = dFail < 0 ? '\u25B2' : dFail > 0 ? '\u25BC' : '\u25AC';
+    var fClr   = dFail < 0 ? 'var(--pass)' : dFail > 0 ? 'var(--fail)' : 'var(--text2)';
+
+    var html = '<div class="cards cmp-delta-cards">'
+      + '<div class="card"><div class="card-value" style="color:' + pClr + '">' + pArrow + ' ' + Math.abs(dPct) + '%</div>'
+      +   '<div class="card-label">Pass Rate Change</div>'
+      +   '<div style="font-size:.8rem;color:var(--text2);margin-top:.25rem">' + bPct + '% \u2192 ' + aPct + '%</div></div>'
+      + '<div class="card"><div class="card-value"><span style="color:' + fClr + '">' + fArrow + '</span> ' + Math.abs(dFail) + '</div>'
+      +   '<div class="card-label">Failure Count Change</div>'
+      +   '<div style="font-size:.8rem;color:var(--text2);margin-top:.25rem">' + (bSum.fail || 0) + ' \u2192 ' + (aSum.fail || 0) + '</div></div>'
+      + '<div class="card"><div class="card-value" style="color:var(--pass)">' + improved.length + '</div><div class="card-label">Improved</div></div>'
+      + '<div class="card"><div class="card-value" style="color:var(--fail)">' + regressed.length + '</div><div class="card-label">Regressed</div></div>'
+      + '<div class="card"><div class="card-value" style="color:var(--warn)">' + persist.length + '</div><div class="card-label">Still Failing</div></div>'
+      + '</div>';
+
+    html += renderGroup(
+      'Regressed \u2014 PASS \u2192 FAIL',
+      regressed.map(function (x) { return renderRow(x.a, '<span style="color:var(--fail)">\u25BC PASS \u2192 FAIL</span>'); }),
+      'No regressions. Great work!', 'var(--fail)');
+
+    html += renderGroup(
+      'Improved \u2014 now PASS',
+      improved.map(function (x) {
+        var fr = x.b.status === 'NOT CHECKED' ? 'NOT CHECKED' : 'FAIL';
+        return renderRow(x.a, '<span style="color:var(--pass)">\u25B2 ' + fr + ' \u2192 PASS</span>');
+      }),
+      'No new improvements.', 'var(--pass)');
+
+    html += renderGroup(
+      'Still Failing',
+      persist.map(function (x) { return renderRow(x.a, '<span style="color:var(--warn)">\u25AC Still FAIL</span>'); }),
+      'No persistent failures.', 'var(--warn)');
+
+    if (added.length > 0) {
+      html += renderGroup(
+        'New Controls (in current run only)',
+        added.map(function (c) { return renderRow(c, '<span style="color:var(--info)">New</span>'); }),
+        '', 'var(--info)');
+    }
+    if (removed.length > 0) {
+      html += renderGroup(
+        'Removed Controls (from baseline only)',
+        removed.map(function (c) { return renderRow(c, '<span style="color:var(--text2)">Removed</span>'); }),
+        '', 'var(--surface2)');
+    }
+    elResult.innerHTML = html;
+  }
+
+  selA.addEventListener('change', run);
+  selB.addEventListener('change', run);
+  run();
+}());
+'@
+
+    return @"
+    <!-- Run Comparison Section -->
+    <section class="section" id="comparison-section" aria-label="Run comparison">
+      <h2>&#128202; Run Comparison</h2>
+      <p id="cmp-nodata" style="color:var(--text2)">No previous scan data available for comparison.
+        Run with <code style="background:var(--surface2);padding:.1rem .4rem;border-radius:4px">-OutputFormat json</code>
+        or <code style="background:var(--surface2);padding:.1rem .4rem;border-radius:4px">-OutputFormat all</code>
+        on multiple scans to enable this view.</p>
+      <div id="cmp-ui" style="display:none">
+        <div class="cmp-pickers">
+          <div class="cmp-picker-grp">
+            <label class="cmp-lbl" for="cmp-run-a">Current Run</label>
+            <select id="cmp-run-a" class="cmp-sel" aria-label="Select current run to compare"></select>
+          </div>
+          <span class="cmp-vs">vs</span>
+          <div class="cmp-picker-grp">
+            <label class="cmp-lbl" for="cmp-run-b">Baseline Run</label>
+            <select id="cmp-run-b" class="cmp-sel" aria-label="Select baseline run to compare against"></select>
+          </div>
+        </div>
+        <div id="cmp-result"></div>
+      </div>
+    </section>
+    <script>window.__adoqrRuns=$runsJson;</script>
+    <script>$jsCode</script>
+"@
+}
+
 function Get-SafeFileName {
     param([string]$Name)
     return ($Name -replace '[^a-zA-Z0-9\-]', '-').ToLower().Trim('-')
@@ -871,7 +1133,8 @@ function Write-ExecutiveHtmlReport {
         [string]$ElapsedTime,
         [PSCustomObject]$OrgSummary,        # @{ Pass; Fail; NotChecked; ReportFile }
         [PSCustomObject[]]$ProjectSummaries, # @( @{ Project; Pass; Fail; NotChecked; ReportFile } )
-        [PSCustomObject[]]$TopRemediations   # @( @{ Control; Severity; Count; AffectedAreas; Finding } )
+        [PSCustomObject[]]$TopRemediations,  # @( @{ Control; Severity; Count; AffectedAreas; Finding } )
+        [string]$ComparisonHtml = ''        # Pre-rendered HTML for the Run Comparison section
     )
 
     $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -1045,10 +1308,41 @@ function Write-ExecutiveHtmlReport {
     }
     .skip-link:focus { top: 1rem; }
 
+    /* Run Comparison */
+    .cmp-pickers {
+      display: flex; align-items: flex-end; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 1.5rem;
+    }
+    .cmp-picker-grp { display: flex; flex-direction: column; gap: .35rem; }
+    .cmp-lbl { font-size: .8rem; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .04em; }
+    .cmp-sel {
+      background: var(--surface2); color: var(--text); border: 1px solid var(--surface2);
+      border-radius: 8px; padding: .5rem .75rem; font-size: .9rem; cursor: pointer;
+      min-width: 280px;
+    }
+    .cmp-sel:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .cmp-vs {
+      font-size: 1rem; font-weight: 700; color: var(--text2); padding-bottom: .5rem; align-self: flex-end;
+    }
+    .cmp-group { margin-bottom: 1.25rem; }
+    .cmp-group-hdr {
+      display: flex; align-items: center; gap: .6rem;
+      padding: .6rem 1rem; background: var(--surface); border-left: 4px solid var(--accent);
+      border-radius: 0 8px 8px 0; font-weight: 700; font-size: .95rem; margin-bottom: .5rem;
+    }
+    .cmp-cnt {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--surface2); border-radius: 999px;
+      min-width: 1.6rem; height: 1.6rem; padding: 0 .4rem;
+      font-size: .8rem; font-weight: 800; color: var(--text);
+    }
+    .cmp-delta-cards { margin-bottom: 1.5rem; }
+
     @media (max-width: 640px) {
       .cards { grid-template-columns: 1fr 1fr; }
       .meta { flex-direction: column; gap: .5rem; }
       .ring-container { justify-content: center; }
+      .cmp-pickers { flex-direction: column; }
+      .cmp-sel { min-width: 0; width: 100%; }
     }
   </style>
 </head>
@@ -1206,6 +1500,8 @@ function Write-ExecutiveHtmlReport {
         </table>
       </div>
     </section>
+
+    $ComparisonHtml
 
   </main>
 
@@ -3505,13 +3801,72 @@ if ($parallelResults) { $projectSummaryList = @($parallelResults) }
 $orgReportFile = if ($orgResult -and $orgResult.ReportFile) { $orgResult.ReportFile } else { '' }
 $remediations = Get-FailedControlsFromReports -OrgReportPath $orgReportFile -ProjectSummaries $projectSummaryList
 
+# ── Build comparison section ─────────────────────────────────────────────────
+# Collect per-control data for the current run (available in memory).
+$curRunControls = [System.Collections.Generic.List[PSCustomObject]]::new()
+if ($orgResult.PSObject.Properties['Results'] -and $orgResult.Results) {
+    foreach ($r in $orgResult.Results) {
+        $curRunControls.Add([PSCustomObject]@{
+            id       = $r.Id
+            status   = $r.Status
+            severity = $r.Severity
+            control  = $r.Control
+            scope    = [PSCustomObject]@{ type = 'organization'; organization = $OrgShortName; project = $null }
+        })
+    }
+}
+foreach ($pr in $projectSummaryList) {
+    if ($pr.PSObject.Properties['Results'] -and $pr.Results) {
+        foreach ($r in $pr.Results) {
+            $curRunControls.Add([PSCustomObject]@{
+                id       = $r.Id
+                status   = $r.Status
+                severity = $r.Severity
+                control  = $r.Control
+                scope    = [PSCustomObject]@{ type = 'project'; organization = $OrgShortName; project = $pr.Project }
+            })
+        }
+    }
+}
+$curRunSummary = [PSCustomObject]@{
+    pass       = @($curRunControls | Where-Object status -eq 'PASS').Count
+    fail       = @($curRunControls | Where-Object status -eq 'FAIL').Count
+    notChecked = @($curRunControls | Where-Object status -eq 'NOT CHECKED').Count
+}
+$currentRunDoc = [PSCustomObject]@{
+    runId       = (Split-Path $OutputPath -Leaf)
+    generatedAt = (Get-Date).ToUniversalTime().ToString('o')
+    summary     = $curRunSummary
+    controls    = $curRunControls
+}
+
+# Discover prior scan JSON files from sibling run folders.
+$assessmentsParent = Split-Path $OutputPath -Parent
+$priorRuns = Get-PriorScanRuns -AssessmentsRoot $assessmentsParent -OrgSafeName $orgSafeName
+
+$allRunsForCompare = [System.Collections.Generic.List[PSCustomObject]]::new()
+$allRunsForCompare.Add($currentRunDoc)
+foreach ($pr in $priorRuns) {
+    $rdoc = $pr.Doc
+    $allRunsForCompare.Add([PSCustomObject]@{
+        runId       = $pr.RunId
+        generatedAt = $rdoc.meta.generatedAt
+        summary     = $rdoc.summary
+        controls    = @($rdoc.controls | Select-Object id, status, severity, control, scope)
+    })
+}
+
+$comparisonHtml = Build-ComparisonSectionHtml -RunsData $allRunsForCompare.ToArray()
+# ─────────────────────────────────────────────────────────────────────────────
+
 Write-ExecutiveHtmlReport -FilePath $htmlReportPath `
     -OrgName $OrgShortName `
     -OrgUrl $OrgUrl `
     -ElapsedTime $timeStr `
     -OrgSummary $orgResult `
     -ProjectSummaries $projectSummaryList `
-    -TopRemediations $remediations
+    -TopRemediations $remediations `
+    -ComparisonHtml $comparisonHtml
 
 # Generate linked remediation report
 $remediationReportPath = Join-Path $OutputPath "$orgSafeName-remediation-plan.html"

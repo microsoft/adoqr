@@ -40,5 +40,10 @@
         # disk but are internal helpers — not public cmdlets that need
         # -WhatIf / -Confirm semantics.
         'PSUseShouldProcessForStateChangingFunctions'
+
+        # Get-PriorScanRuns intentionally silences all errors from reading
+        # prior scan files — corrupt, unreadable, or schema-invalid files
+        # should be skipped without surfacing noise to the user.
+        'PSAvoidUsingEmptyCatchBlock'
     )
 }
