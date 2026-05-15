@@ -51,6 +51,9 @@ info "Downloading $SCRIPT_NAME..."
 curl -fsSL "$RAW_BASE/$SCRIPT_NAME" -o "$INSTALL_DIR/$SCRIPT_NAME"
 chmod +x "$INSTALL_DIR/$SCRIPT_NAME" || true
 
+info "Downloading remediation-steps.psd1..."
+curl -fsSL "$RAW_BASE/remediation-steps.psd1" -o "$INSTALL_DIR/remediation-steps.psd1" || warn "remediation-steps.psd1 not found at $REF (older release?); continuing."
+
 info "Downloading $SCHEMA_PATH..."
 curl -fsSL "$RAW_BASE/$SCHEMA_PATH" -o "$INSTALL_DIR/$SCHEMA_PATH" || warn "scan.schema.json not found at $REF (older release?); continuing."
 

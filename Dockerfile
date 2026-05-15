@@ -42,6 +42,7 @@ RUN apt-get update \
 # Bring in adoqr
 WORKDIR /opt/adoqr
 COPY invoke-adoqr.ps1 /opt/adoqr/
+COPY remediation-steps.psd1 /opt/adoqr/
 COPY schemas /opt/adoqr/schemas
 
 # Default output directory; callers should bind-mount a host path here

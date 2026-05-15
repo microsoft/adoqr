@@ -13,7 +13,7 @@ A bundled **GitHub Copilot skill** is included to help you refine the script,
 interpret results, and explore remediation options through natural language
 in VS Code.
 
-![report executive summary ](assets/exec_summary.png)
+![report executive summary](https://github.com/microsoft/adoqr/blob/main/assets/exec_summary.png?raw=1)
 
 ## What adoqr Checks
 
@@ -244,7 +244,7 @@ adopting the recommended best practices.
   exactly where to navigate in Azure DevOps and what to change.
 - After applying changes, re-run adoqr to verify the items are resolved.
 
-![sample remediation plan](assets/remediation_steps.png)
+![sample remediation plan](https://github.com/microsoft/adoqr/blob/main/assets/remediation_steps.png?raw=1)
 
 ## Copilot Skill
 

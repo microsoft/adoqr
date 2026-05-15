@@ -71,6 +71,14 @@ Write-Info "Downloading $scriptName..."
 Invoke-WebRequest -UseBasicParsing -Uri "$rawBase/$scriptName" -OutFile (Join-Path $InstallDir $scriptName)
 
 try {
+    Write-Info "Downloading remediation-steps.psd1..."
+    Invoke-WebRequest -UseBasicParsing -Uri "$rawBase/remediation-steps.psd1" -OutFile (Join-Path $InstallDir 'remediation-steps.psd1')
+}
+catch {
+    Write-Warn "remediation-steps.psd1 not found at $Ref (older release?); continuing."
+}
+
+try {
     Write-Info "Downloading $schemaPath..."
     Invoke-WebRequest -UseBasicParsing -Uri "$rawBase/$schemaPath" -OutFile (Join-Path $InstallDir $schemaPath)
 }
