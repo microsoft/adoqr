@@ -88,6 +88,30 @@ Reports are saved to a timestamped subfolder under `assessments/`. The
 executive HTML summary auto-opens in your browser when the assessment
 completes.
 
+### Configuration File (optional)
+
+By default adoqr flags repositories and projects as inactive after **180 days**
+without a commit. If you want a different threshold, create a settings file
+named `adoqr.settings.psd1` in the same directory as `invoke-adoqr.ps1`:
+
+```powershell
+# Copy the example file and uncomment / edit the values you want to change
+Copy-Item adoqr.settings.example.psd1 adoqr.settings.psd1
+```
+
+Edit the new file and uncomment the setting you want to override, for example:
+
+```powershell
+@{
+    # Flag repos / projects with no commits in the last 90 days (default: 180)
+    InactiveRepoDays = 90
+}
+```
+
+`adoqr.settings.psd1` is listed in `.gitignore` so your local overrides are
+never committed. All settings are optional — only add the keys you want to
+change.
+
 ## Usage
 
 ### Authentication
