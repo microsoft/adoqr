@@ -16,8 +16,8 @@
 .PARAMETER OutputPath
     Directory for report files. Defaults to current directory.
 .PARAMETER MaxParallel
-    Maximum number of projects to assess concurrently. Default 1 (sequential).
-    Requires PowerShell 7+. Values 3-5 recommended to avoid ADO rate limiting.
+    Maximum concurrency for project assessment. Default 3.
+    Requires PowerShell 7+ for parallel execution. Values 2-4 recommended to avoid ADO rate limiting.
 .PARAMETER IncludeGraphCheck
     When specified, cross-references ADO users with Entra ID via Microsoft Graph API
     to detect deleted or disabled AAD users (USER-02). Requires the caller to have
@@ -54,7 +54,7 @@ param(
 
     [Parameter()]
     [ValidateRange(1, 20)]
-    [int]$MaxParallel = 1,
+    [int]$MaxParallel = 3,
 
     [Parameter()]
     [switch]$IncludeGraphCheck,
@@ -113,6 +113,13 @@ function Invoke-AdoApi {
         [string]$Body = $null,
         [int]$MaxRetries = 3
     )
+    $cacheKey = $null
+    if ($Method -ieq 'GET' -and -not $Body) {
+        if (-not $script:AdoApiCache) { $script:AdoApiCache = @{} }
+        $cacheKey = $Uri
+        if ($script:AdoApiCache.ContainsKey($cacheKey)) { return $script:AdoApiCache[$cacheKey] }
+    }
+
     for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
         try {
             $params = @{
@@ -146,16 +153,24 @@ function Invoke-AdoApi {
                     if ($remaining -is [array]) { $remaining = $remaining[0] }
                     if ($limit -is [array])     { $limit = $limit[0] }
 
-                    if ($remaining -and $limit) {
+                    if ($remaining -and $limit -and [double]$limit -gt 0 -and [double]$remaining -ge 0) {
+                        # NOTE: ADO only emits these headers when usage exceeds ~80% of the
+                        # budget, so their mere presence isn't a problem — only act when
+                        # remaining is genuinely low. Tiered pauses align with ADO's ~5s
+                        # TSTU replenishment window.
                         $pctRemaining = [double]$remaining / [math]::Max(1, [double]$limit)
-                        if ($pctRemaining -le 0.10) {
-                            Write-Warning ("Rate limit pressure: {0}/{1} TSTUs remaining ({2:P0}). Pausing 2s..." -f $remaining, $limit, $pctRemaining)
-                            Start-Sleep -Seconds 2
+                        $pauseSec = 0
+                        if     ($pctRemaining -le 0.05) { $pauseSec = 5 }
+                        elseif ($pctRemaining -le 0.15) { $pauseSec = 2 }
+                        if ($pauseSec -gt 0) {
+                            Write-Warning ("Rate limit pressure: {0}/{1} TSTUs remaining ({2:P0}). Pausing {3}s..." -f $remaining, $limit, $pctRemaining, $pauseSec)
+                            Start-Sleep -Seconds $pauseSec
                         }
                     }
                 }
             }
 
+            if ($cacheKey) { $script:AdoApiCache[$cacheKey] = $response }
             return $response
         }
         catch {
@@ -178,6 +193,7 @@ function Invoke-AdoApi {
                     404 { 'Not found — resource may not exist or feature is not enabled' }
                 }
                 Write-Verbose "HTTP $status on $Uri — $statusMsg. Skipping."
+                if ($cacheKey) { $script:AdoApiCache[$cacheKey] = $null }
                 return $null
             }
             if ($attempt -eq $MaxRetries) {
@@ -195,6 +211,9 @@ function Invoke-AzCli {
     param(
         [Parameter(Mandatory)][string]$Command
     )
+    if (-not $script:AzCliCache) { $script:AzCliCache = @{} }
+    if ($script:AzCliCache.ContainsKey($Command)) { return $script:AzCliCache[$Command] }
+
     try {
         # Temporarily allow stderr without throwing so we can separate streams
         $prevEAP = $ErrorActionPreference
@@ -212,8 +231,11 @@ function Invoke-AzCli {
         }
         if ($stdout.Count -gt 0) {
             $json = $stdout -join "`n"
-            return $json | ConvertFrom-Json
+            $result = $json | ConvertFrom-Json
+            $script:AzCliCache[$Command] = $result
+            return $result
         }
+        $script:AzCliCache[$Command] = $null
         return $null
     }
     catch {
@@ -345,12 +367,72 @@ function Get-SafeProperty {
 function Test-IsGuestMember {
     param($Member)
     $mail = Get-SafeProperty $Member 'mailAddress'
+    if (-not $mail) { $mail = Get-SafeProperty $Member 'principalName' }
     $alias = Get-SafeProperty $Member 'directoryAlias'
     $displayName = Get-SafeProperty $Member 'displayName'
     if ($mail -and $mail -imatch '#EXT#') { return $true }
     if ($alias -and $alias -imatch '#EXT#') { return $true }
     if ($displayName -and $displayName -imatch '#EXT#') { return $true }
     return $false
+}
+
+function Get-AdoGraphSubjectDescriptor {
+    param([string]$OrgUrl, [hashtable]$Header, [string]$StorageKey)
+    if (-not $StorageKey) { return $null }
+
+    $descriptor = Invoke-AdoApi -Uri "$($script:VsspsUrl)/_apis/graph/descriptors/$StorageKey`?api-version=7.1-preview.1" -Header $Header
+    if ($descriptor) { return Get-SafeProperty $descriptor 'value' }
+    return $null
+}
+
+function Get-AdoGraphProjectGroups {
+    param([string]$OrgUrl, [string]$ProjectId, [hashtable]$Header)
+
+    $scopeDescriptor = Get-AdoGraphSubjectDescriptor -OrgUrl $OrgUrl -Header $Header -StorageKey $ProjectId
+    if (-not $scopeDescriptor) { return @() }
+
+    $groups = Invoke-AdoApi -Uri "$($script:VsspsUrl)/_apis/graph/groups?scopeDescriptor=$([System.Uri]::EscapeDataString($scopeDescriptor))&api-version=7.1-preview.1" -Header $Header
+    if ($groups -and $groups.value) { return @($groups.value) }
+    return @()
+}
+
+function Get-AdoGraphSubjectsByDescriptor {
+    param([string]$OrgUrl, [hashtable]$Header, [string[]]$Descriptors)
+
+    $uniqueDescriptors = @($Descriptors | Where-Object { $_ } | Select-Object -Unique)
+    if ($uniqueDescriptors.Count -eq 0) { return @{} }
+
+    $body = @{
+        lookupKeys = @($uniqueDescriptors | ForEach-Object { @{ descriptor = $_ } })
+    } | ConvertTo-Json -Depth 5
+
+    $lookup = Invoke-AdoApi -Uri "$($script:VsspsUrl)/_apis/graph/subjectlookup?api-version=7.1-preview.1" -Header $Header -Method 'POST' -Body $body
+    $subjectMap = @{}
+    if ($lookup -and $lookup.value) {
+        foreach ($subject in @($lookup.value)) {
+            $descriptor = Get-SafeProperty $subject 'descriptor'
+            if ($descriptor) { $subjectMap[$descriptor] = $subject }
+        }
+    }
+    return $subjectMap
+}
+
+function Get-AdoGraphGroupMembers {
+    param([string]$OrgUrl, [hashtable]$Header, [string]$GroupDescriptor)
+    if (-not $GroupDescriptor) { return @() }
+
+    $encodedDescriptor = [System.Uri]::EscapeDataString($GroupDescriptor)
+    $memberships = Invoke-AdoApi -Uri "$($script:VsspsUrl)/_apis/graph/memberships/$encodedDescriptor`?direction=down&depth=1&api-version=7.1-preview.1" -Header $Header
+    if (-not $memberships -or -not $memberships.value) { return @() }
+
+    $memberDescriptors = @($memberships.value | ForEach-Object { Get-SafeProperty $_ 'memberDescriptor' } | Where-Object { $_ })
+    $subjectMap = Get-AdoGraphSubjectsByDescriptor -OrgUrl $OrgUrl -Header $Header -Descriptors $memberDescriptors
+
+    $members = foreach ($descriptor in $memberDescriptors) {
+        if ($subjectMap.ContainsKey($descriptor)) { $subjectMap[$descriptor] }
+        else { [PSCustomObject]@{ descriptor = $descriptor; displayName = $descriptor } }
+    }
+    return @($members)
 }
 
 function Test-IsProductionStage {
@@ -1590,7 +1672,7 @@ function Test-OrgPolicies {
     }
 
     # AUTH-03: Public Projects
-    $projects = Invoke-AzCli -Command "devops project list --org $OrgUrl -o json"
+    $projects = Invoke-AdoApi -Uri "$OrgUrl/_apis/projects?api-version=7.1" -Header $Header
     $publicProjects = @()
     if ($projects -and $projects.value) {
         $publicProjects = @($projects.value | Where-Object { $_.visibility -eq 'public' })
@@ -1852,10 +1934,7 @@ function Test-OrgAdmins {
     # PCA members
     $pcaMembers = @()
     if ($pcaGroup) {
-        $memberships = Invoke-AzCli -Command "devops security group membership list --id `"$($pcaGroup.descriptor)`" --org $OrgUrl -o json"
-        if ($memberships) {
-            $pcaMembers = @($memberships.PSObject.Properties | ForEach-Object { $_.Value })
-        }
+        $pcaMembers = @(Get-AdoGraphGroupMembers -OrgUrl $OrgUrl -Header $Header -GroupDescriptor $pcaGroup.descriptor)
     }
 
     # ADMIN-01: Manual review
@@ -1883,9 +1962,8 @@ function Test-OrgAdmins {
 
     # ADMIN-06: PCSA Group
     if ($pcsaGroup) {
-        $pcsaMemberships = Invoke-AzCli -Command "devops security group membership list --id `"$($pcsaGroup.descriptor)`" --org $OrgUrl -o json"
-        $pcsaCount = 0
-        if ($pcsaMemberships) { $pcsaCount = @($pcsaMemberships.PSObject.Properties).Count }
+        $pcsaMembers = @(Get-AdoGraphGroupMembers -OrgUrl $OrgUrl -Header $Header -GroupDescriptor $pcsaGroup.descriptor)
+        $pcsaCount = $pcsaMembers.Count
         if ($pcsaCount -le 3) {
             $results.Add((New-ControlResult -Id "ADMIN-06" -Status "PASS" -Severity "High" -Control "Project Collection Service Accounts" -Finding "PCSA group has $pcsaCount member(s)."))
         } else {
@@ -2206,7 +2284,8 @@ function Test-ProjectSettings {
     Write-Progress -Activity "Project: $ProjectName" -Status "Checking project settings..."
 
     # PROJ-01: Visibility
-    $projectInfo = Invoke-AzCli -Command "devops project show --project `"$ProjectName`" --org $OrgUrl -o json"
+    $encodedProjectName = [System.Uri]::EscapeDataString($ProjectName)
+    $projectInfo = Invoke-AdoApi -Uri "$OrgUrl/_apis/projects/$encodedProjectName`?api-version=7.1" -Header $Header
     if ($projectInfo) {
         if ($projectInfo.visibility -ne 'public') {
             $results.Add((New-ControlResult -Id "PROJ-01" -Status "PASS" -Severity "High" -Control "Project Visibility" -Finding "Project visibility is '$($projectInfo.visibility)'."))
@@ -2218,18 +2297,17 @@ function Test-ProjectSettings {
     }
 
     # Project admin groups
-    $groups = Invoke-AzCli -Command "devops security group list --org $OrgUrl --project `"$ProjectName`" -o json"
+    $groups = if ($projectInfo) { Get-AdoGraphProjectGroups -OrgUrl $OrgUrl -ProjectId $projectInfo.id -Header $Header } else { @() }
     $paGroup = $null
     $baGroup = $null
-    if ($groups -and $groups.graphGroups) {
-        $paGroup = $groups.graphGroups | Where-Object { $_.displayName -eq 'Project Administrators' } | Select-Object -First 1
-        $baGroup = $groups.graphGroups | Where-Object { $_.displayName -eq 'Build Administrators' } | Select-Object -First 1
+    if ($groups) {
+        $paGroup = $groups | Where-Object { $_.displayName -eq 'Project Administrators' } | Select-Object -First 1
+        $baGroup = $groups | Where-Object { $_.displayName -eq 'Build Administrators' } | Select-Object -First 1
     }
 
     $paMembers = @()
     if ($paGroup) {
-        $paMembership = Invoke-AzCli -Command "devops security group membership list --id `"$($paGroup.descriptor)`" --org $OrgUrl -o json"
-        if ($paMembership) { $paMembers = @($paMembership.PSObject.Properties | ForEach-Object { $_.Value }) }
+        $paMembers = @(Get-AdoGraphGroupMembers -OrgUrl $OrgUrl -Header $Header -GroupDescriptor $paGroup.descriptor)
     }
 
     # PROJ-02: Manual
@@ -2252,8 +2330,7 @@ function Test-ProjectSettings {
     # PROJ-05: Build Admin count
     $baMembers = @()
     if ($baGroup) {
-        $baMembership = Invoke-AzCli -Command "devops security group membership list --id `"$($baGroup.descriptor)`" --org $OrgUrl -o json"
-        if ($baMembership) { $baMembers = @($baMembership.PSObject.Properties | ForEach-Object { $_.Value }) }
+        $baMembers = @(Get-AdoGraphGroupMembers -OrgUrl $OrgUrl -Header $Header -GroupDescriptor $baGroup.descriptor)
     }
     if ($baMembers.Count -le 100) {
         $results.Add((New-ControlResult -Id "PROJ-05" -Status "PASS" -Severity "Medium" -Control "Build Admin Count (Max 100)" -Finding "Build admin count: $($baMembers.Count) (≤ 100)."))
@@ -2498,9 +2575,9 @@ function Test-BuildPipelines {
         }
 
         # BUILD-04: Inactive
-        $lastRun = Invoke-AzCli -Command "pipelines runs list --pipeline-ids $defId --top 1 --project `"$ProjectName`" --org $OrgUrl -o json"
+        $lastRun = Invoke-AdoApi -Uri "$OrgUrl/$ProjectName/_apis/build/builds?definitions=$defId&`$top=1&queryOrder=finishTimeDescending&api-version=7.1" -Header $Header
         [array]$lastRunArr = @()
-        if ($null -ne $lastRun) { [array]$lastRunArr = @($lastRun) }
+        if ($lastRun -and $lastRun.value) { [array]$lastRunArr = @($lastRun.value) }
         if ($lastRunArr.Length -gt 0) {
             $runDateStr = Get-SafeProperty $lastRunArr[0] 'createdDate'
             if (-not $runDateStr) { $runDateStr = Get-SafeProperty $lastRunArr[0] 'finishedDate' }
@@ -2671,7 +2748,10 @@ function Test-ServiceConnections {
         $epName = $ep.name
         $prefix = "SC '$epName'"
 
-        $detail = Invoke-AdoApi -Uri "$OrgUrl/$ProjectName/_apis/serviceendpoint/endpoints/${epId}?api-version=7.1" -Header $Header
+        $detail = $ep
+        if (-not $detail.authorization -or -not $detail.PSObject.Properties['isShared']) {
+            $detail = Invoke-AdoApi -Uri "$OrgUrl/$ProjectName/_apis/serviceendpoint/endpoints/${epId}?api-version=7.1" -Header $Header
+        }
         if (-not $detail) { continue }
 
         # SC-01: Certificate-based auth
@@ -2743,6 +2823,13 @@ function Test-AgentPools {
     }
 
     $poolsChecked = @{}
+    $poolMap = @{}
+    $poolList = Invoke-AdoApi -Uri "$OrgUrl/_apis/distributedtask/pools?api-version=7.1" -Header $Header
+    if ($poolList -and $poolList.value) {
+        foreach ($poolItem in $poolList.value) {
+            $poolMap[[string]$poolItem.id] = $poolItem
+        }
+    }
 
     foreach ($queue in $queues.value) {
         $poolId = $queue.pool.id
@@ -2753,7 +2840,10 @@ function Test-AgentPools {
         $poolName = $queue.pool.name
         $prefix = "Pool '$poolName'"
 
-        $pool = Invoke-AdoApi -Uri "$OrgUrl/_apis/distributedtask/pools/${poolId}?api-version=7.1" -Header $Header
+        $pool = if ($poolMap.ContainsKey([string]$poolId)) { $poolMap[[string]$poolId] } else { $queue.pool }
+        if (-not $pool -or -not $pool.PSObject.Properties['autoProvision'] -or ($pool.isHosted -eq $false -and -not $pool.PSObject.Properties['autoUpdate'])) {
+            $pool = Invoke-AdoApi -Uri "$OrgUrl/_apis/distributedtask/pools/${poolId}?api-version=7.1" -Header $Header
+        }
         if (-not $pool) { continue }
 
         # AP-01, AP-02: Manual for self-hosted
@@ -2823,7 +2913,7 @@ function Test-Repositories {
     }
 
     # Per-repo checks can run in parallel when there are many repos
-    if ($repos.Count -gt 3 -and $PSVersionTable.PSVersion.Major -ge 7) {
+    if ($repos.Count -gt 3 -and $PSVersionTable.PSVersion.Major -ge 7 -and $MaxParallel -gt 1) {
         # Serialize only the functions needed for repo checks
         # NOTE: Get-ControlCategory must be included because New-ControlResult
         # calls it whenever the caller does not supply an explicit -Category.
@@ -2852,7 +2942,7 @@ function Test-Repositories {
             } elseif ($pipePerms) {
                 New-ControlResult -Id "REPO-02" -Status "PASS" -Severity "Medium" -Control "Not Accessible to All YAML Pipelines" -Finding "$prefix — Not accessible to all pipelines."
             }
-        } -ThrottleLimit 5
+        } -ThrottleLimit $MaxParallel
 
         Add-ResultsSafe $results $repoResults
     } else {
@@ -2978,6 +3068,26 @@ function Test-Repositories {
         @{ Id = 'REPO-05'; FileNames = @('CODE_OF_CONDUCT.md','CODE_OF_CONDUCT','CODE-OF-CONDUCT.md');   Control = 'CODE_OF_CONDUCT File Present on Default Branch'; Severity = 'Low' }
     )
 
+    $rootFilesByRepo = @{}
+    foreach ($repo in $repos) {
+        $defaultBranch = Get-SafeProperty $repo 'defaultBranch'
+        if (-not $defaultBranch) { continue }
+        $branchName = $defaultBranch -replace '^refs/heads/', ''
+        $rootUri = "$OrgUrl/$ProjectName/_apis/git/repositories/$($repo.id)/items?scopePath=/&recursionLevel=OneLevel&versionDescriptor.version=$branchName&versionDescriptor.versionType=branch&api-version=7.1"
+        $rootItems = Invoke-AdoApi -Uri $rootUri -Header $Header
+        $fileSet = @{}
+        if ($rootItems -and $rootItems.value) {
+            foreach ($item in $rootItems.value) {
+                $path = Get-SafeProperty $item 'path'
+                if ($path -and $path -ne '/') {
+                    $leafName = Split-Path $path -Leaf
+                    if ($leafName) { $fileSet[$leafName.ToUpperInvariant()] = $true }
+                }
+            }
+        }
+        $rootFilesByRepo[[string]$repo.id] = $fileSet
+    }
+
     foreach ($check in $communityChecks) {
         $missing      = [System.Collections.Generic.List[string]]::new()
         $reposChecked = 0
@@ -2985,14 +3095,11 @@ function Test-Repositories {
             $defaultBranch = Get-SafeProperty $repo 'defaultBranch'
             if (-not $defaultBranch) { continue }
             $reposChecked++
-            $branchName = $defaultBranch -replace '^refs/heads/', ''
 
             $found = $false
+            $fileSet = if ($rootFilesByRepo.ContainsKey([string]$repo.id)) { $rootFilesByRepo[[string]$repo.id] } else { @{} }
             foreach ($fileName in $check.FileNames) {
-                $encoded = [System.Uri]::EscapeDataString($fileName)
-                $itemUri = "$OrgUrl/$ProjectName/_apis/git/repositories/$($repo.id)/items?path=$encoded&versionDescriptor.version=$branchName&versionDescriptor.versionType=branch&api-version=7.1"
-                $item = Invoke-AdoApi -Uri $itemUri -Header $Header
-                if ($item -and ((Get-SafeProperty $item 'path') -or (Get-SafeProperty $item 'objectId'))) {
+                if ($fileSet.ContainsKey($fileName.ToUpperInvariant())) {
                     $found = $true
                     break
                 }
@@ -3289,9 +3396,60 @@ function Test-OrgWidePats {
     return $results
 }
 
+function Import-AdoqrSettings {
+    <#
+    .SYNOPSIS
+        Loads optional user settings from adoqr.settings.psd1.
+    .DESCRIPTION
+        Reads a PowerShell data file at the specified path and returns a
+        hashtable of validated configuration overrides.  If the file does not
+        exist an empty hashtable is returned so callers need not null-check.
+    .PARAMETER Path
+        Full path to the settings file.  Defaults to adoqr.settings.psd1 in
+        the same directory as invoke-adoqr.ps1.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$Path = (Join-Path $PSScriptRoot 'adoqr.settings.psd1')
+    )
+
+    if (-not (Test-Path $Path)) {
+        return @{}
+    }
+
+    try {
+        $data = Import-PowerShellDataFile -Path $Path -ErrorAction Stop
+    }
+    catch {
+        Write-Warning "Could not read settings file '$Path': $_"
+        return @{}
+    }
+
+    $settings = @{}
+
+    if ($data.ContainsKey('InactiveRepoDays')) {
+        $val = $data['InactiveRepoDays']
+        if ($val -is [int] -and $val -gt 0) {
+            $settings['InactiveRepoDays'] = $val
+        }
+        else {
+            Write-Warning "Settings: 'InactiveRepoDays' must be a positive integer. Ignoring value '$val'."
+        }
+    }
+
+    return $settings
+}
+
 #endregion
 
 #region Main
+
+# Apply optional user settings (adoqr.settings.psd1 next to this script)
+$_userSettings = Import-AdoqrSettings -Path (Join-Path $PSScriptRoot 'adoqr.settings.psd1')
+if ($_userSettings.ContainsKey('InactiveRepoDays')) {
+    $script:InactiveRepoDays = $_userSettings['InactiveRepoDays']
+    Write-Verbose "Settings: InactiveRepoDays overridden to $($script:InactiveRepoDays) (from adoqr.settings.psd1)"
+}
 
 # Normalize organization URL
 if ($Organization -notmatch '^https?://') {
@@ -3446,7 +3604,7 @@ Write-Host ""
 
 $orgSafeName = Get-SafeFileName $OrgShortName
 
-if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVersion.Major -ge 7) {
+if ($MaxParallel -gt 1 -and $projectNames.Count -ge 1 -and $PSVersionTable.PSVersion.Major -ge 7) {
     # =============================================
     #  PARALLEL MODE — Org + Projects concurrently
     # =============================================
@@ -3459,8 +3617,10 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
     Write-Host ""
 
     # Serialize all assessment functions so parallel runspaces can use them
+    $projectCount = $projectNames.Count
+    $projectWorkerBudget = 6
     $allFunctionDefs = (Get-ChildItem Function: | Where-Object {
-        $_.Name -match '^(Invoke-AdoApi|Invoke-AzCli|New-ControlResult|Test-|Get-Safe|Get-ControlCategory|Write-Assessment|Add-ResultsSafe)'
+        $_.Name -match '^(Invoke-AdoApi|Invoke-AzCli|New-ControlResult|Test-|Get-Safe|Get-AdoGraph|Get-ControlCategory|Write-Assessment|Add-ResultsSafe)'
     } | ForEach-Object {
         "function $($_.Name) {`n$($_.Definition)`n}"
     }) -join "`n`n"
@@ -3512,17 +3672,18 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
         $script:FeedsUrl           = $cfg.FeedsUrl
 
         $orgResults = [System.Collections.Generic.List[PSCustomObject]]::new()
+        $orgTimings = [System.Collections.Generic.List[PSCustomObject]]::new()
 
-        Add-ResultsSafe $orgResults (Test-OrgPolicies -OrgUrl $orgUrl -Header $hdr)
-        Add-ResultsSafe $orgResults (Test-OrgUsers -OrgUrl $orgUrl -Header $hdr -IncludeGraphCheck:$graphCheck)
-        Add-ResultsSafe $orgResults (Test-OrgAdmins -OrgUrl $orgUrl -Header $hdr)
-        Add-ResultsSafe $orgResults (Test-OrgExtensions -OrgUrl $orgUrl -Header $hdr)
-        Add-ResultsSafe $orgResults (Test-OrgAudit -OrgUrl $orgUrl -Header $hdr)
-        Add-ResultsSafe $orgResults (Test-OrgPipelineSettings -OrgUrl $orgUrl -Header $hdr)
-        Add-ResultsSafe $orgResults (Test-OrgFeeds -OrgUrl $orgUrl -Header $hdr)
-        Add-ResultsSafe $orgResults (Test-OrgPatPolicy -OrgUrl $orgUrl -Header $hdr)
-        Add-ResultsSafe $orgResults (Test-UserPats -OrgShortName $orgShort -Header $hdr)
-        Add-ResultsSafe $orgResults (Test-OrgWidePats -OrgUrl $orgUrl -Header $hdr)
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgPolicies'; Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgPolicies -OrgUrl $orgUrl -Header $hdr) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgUsers';    Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgUsers -OrgUrl $orgUrl -Header $hdr -IncludeGraphCheck:$graphCheck) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgAdmins';   Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgAdmins -OrgUrl $orgUrl -Header $hdr) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgExtensions';Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgExtensions -OrgUrl $orgUrl -Header $hdr) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgAudit';    Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgAudit -OrgUrl $orgUrl -Header $hdr) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgPipelineSettings';Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgPipelineSettings -OrgUrl $orgUrl -Header $hdr) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgFeeds';    Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgFeeds -OrgUrl $orgUrl -Header $hdr) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgPatPolicy';Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgPatPolicy -OrgUrl $orgUrl -Header $hdr) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='UserPats';    Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-UserPats -OrgShortName $orgShort -Header $hdr) }).TotalMilliseconds })
+        $orgTimings.Add([PSCustomObject]@{ Name='OrgWidePats'; Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgWidePats -OrgUrl $orgUrl -Header $hdr) }).TotalMilliseconds })
 
         $orgReportPath = Join-Path $outPath "$orgSafe-org-assessment.md"
         Write-AssessmentReport -FilePath $orgReportPath -Title "Organization Quick Review: $orgShort" -Scope "Organization: $orgUrl" -Results $orgResults -Quiet
@@ -3539,6 +3700,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
             Fail       = $fail
             NotChecked = $nc
             Results    = $orgResults
+            Timings    = $orgTimings
         }
     } -ArgumentList $OrgUrl, $header, $OrgShortName, $OutputPath, $orgSafeName, $allFunctionDefs, $scriptConfig, $IncludeGraphCheck.IsPresent
 
@@ -3571,84 +3733,74 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
         $projInfo = Invoke-AzCli -Command "devops project show --project `"$projName`" --org $orgUrl -o json"
         $projId = if ($projInfo) { $projInfo.id } else { "" }
 
-        # Run all 10 check categories as parallel thread jobs within this project
-        $checkJobs = @(
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-ProjectSettings -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
+        # Run all 10 check categories as parallel thread jobs within this project.
+        # Each job returns @{ Name; Ms; Results } so we can report per-category timing.
+        $baseArgs = @($funcDefs, $cfg, $orgUrl, $projName, $hdr, $null)
+        $repoArgs = @($funcDefs, $cfg, $orgUrl, $projName, $hdr, $projId)
 
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-BuildPipelines -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
-
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-ReleasePipelines -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
-
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-ServiceConnections -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
-
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-AgentPools -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
-
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h, $pid2)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-Repositories -OrgUrl $o -ProjectName $p -ProjectId $pid2 -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr, $projId
-
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-ProjectFeeds -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
-
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-SecureFiles -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
-
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-Environments -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
-
-            Start-ThreadJob -ScriptBlock {
-                param($fd, $c, $o, $p, $h)
-                . ([scriptblock]::Create($fd))
-                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
-                Test-VariableGroups -OrgUrl $o -ProjectName $p -Header $h
-            } -ArgumentList $funcDefs, $cfg, $orgUrl, $projName, $hdr
+        $checkSpecs = @(
+            @{ Name='ProjectSettings';    Args=$baseArgs }
+            @{ Name='BuildPipelines';     Args=$baseArgs }
+            @{ Name='ReleasePipelines';   Args=$baseArgs }
+            @{ Name='ServiceConnections'; Args=$baseArgs }
+            @{ Name='AgentPools';         Args=$baseArgs }
+            @{ Name='Repositories';       Args=$repoArgs }
+            @{ Name='ProjectFeeds';       Args=$baseArgs }
+            @{ Name='SecureFiles';        Args=$baseArgs }
+            @{ Name='Environments';       Args=$baseArgs }
+            @{ Name='VariableGroups';     Args=$baseArgs }
         )
 
-        # Wait for all check jobs and collect results
+        $activeProjectSlots = [math]::Max(1, [math]::Min($using:MaxParallel, $using:projectCount))
+        $categoryThrottle = [math]::Max(1, [math]::Min(3, [math]::Floor($using:projectWorkerBudget / $activeProjectSlots)))
+        $pendingSpecs = [System.Collections.Queue]::new()
+        foreach ($spec in $checkSpecs) { $pendingSpecs.Enqueue($spec) }
+
+        $checkScript = {
+                param($tn, $fd, $c, $o, $p, $h, $pid2)
+                . ([scriptblock]::Create($fd))
+                $c.GetEnumerator() | ForEach-Object { Set-Variable -Scope Script -Name $_.Key -Value $_.Value }
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                $r = switch ($tn) {
+                    'ProjectSettings'    { Test-ProjectSettings    -OrgUrl $o -ProjectName $p -Header $h }
+                    'BuildPipelines'     { Test-BuildPipelines     -OrgUrl $o -ProjectName $p -Header $h }
+                    'ReleasePipelines'   { Test-ReleasePipelines   -OrgUrl $o -ProjectName $p -Header $h }
+                    'ServiceConnections' { Test-ServiceConnections -OrgUrl $o -ProjectName $p -Header $h }
+                    'AgentPools'         { Test-AgentPools         -OrgUrl $o -ProjectName $p -Header $h }
+                    'Repositories'       { Test-Repositories       -OrgUrl $o -ProjectName $p -ProjectId $pid2 -Header $h }
+                    'ProjectFeeds'       { Test-ProjectFeeds       -OrgUrl $o -ProjectName $p -Header $h }
+                    'SecureFiles'        { Test-SecureFiles        -OrgUrl $o -ProjectName $p -Header $h }
+                    'Environments'       { Test-Environments       -OrgUrl $o -ProjectName $p -Header $h }
+                    'VariableGroups'     { Test-VariableGroups     -OrgUrl $o -ProjectName $p -Header $h }
+                }
+                $sw.Stop()
+                [PSCustomObject]@{ Name = $tn; Ms = $sw.ElapsedMilliseconds; Results = $r }
+        }
+
+        # Run check categories with a small per-project throttle. This keeps a
+        # single project fast without returning to the old 10-way API burst.
         $projResults = [System.Collections.Generic.List[PSCustomObject]]::new()
-        $checkJobs | Wait-Job | ForEach-Object {
-            Add-ResultsSafe $projResults (Receive-Job $_ -ErrorAction SilentlyContinue)
-            Remove-Job $_ -Force
+        $projTimings = [System.Collections.Generic.List[PSCustomObject]]::new()
+        $checkJobs = @()
+        while ($pendingSpecs.Count -gt 0 -or $checkJobs.Count -gt 0) {
+            while ($pendingSpecs.Count -gt 0 -and $checkJobs.Count -lt $categoryThrottle) {
+                $spec = $pendingSpecs.Dequeue()
+                $checkJobs += Start-ThreadJob -ScriptBlock $checkScript -ArgumentList (@($spec.Name) + $spec.Args)
+            }
+
+            if ($checkJobs.Count -gt 0) {
+                $finished = @(Wait-Job -Job $checkJobs -Any)
+                foreach ($job in $finished) {
+                    $out = Receive-Job $job -ErrorAction SilentlyContinue
+                    Remove-Job $job -Force
+                    if ($out) {
+                        Add-ResultsSafe $projResults $out.Results
+                        $projTimings.Add([PSCustomObject]@{ Name = $out.Name; Ms = $out.Ms })
+                    }
+                }
+                $finishedIds = @($finished | ForEach-Object { $_.Id })
+                $checkJobs = @($checkJobs | Where-Object { $_.Id -notin $finishedIds })
+            }
         }
 
         # Write report
@@ -3668,6 +3820,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
             Fail       = $projFail
             NotChecked = $projNC
             Results    = $projResults
+            Timings    = $projTimings
         }
     } -ThrottleLimit $MaxParallel
 
@@ -3711,17 +3864,18 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
     Write-Host "========================================" -ForegroundColor Cyan
 
     $orgResults = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $orgTimings = [System.Collections.Generic.List[PSCustomObject]]::new()
 
-    Add-ResultsSafe $orgResults (Test-OrgPolicies -OrgUrl $OrgUrl -Header $header)
-    Add-ResultsSafe $orgResults (Test-OrgUsers -OrgUrl $OrgUrl -Header $header -IncludeGraphCheck:$IncludeGraphCheck)
-    Add-ResultsSafe $orgResults (Test-OrgAdmins -OrgUrl $OrgUrl -Header $header)
-    Add-ResultsSafe $orgResults (Test-OrgExtensions -OrgUrl $OrgUrl -Header $header)
-    Add-ResultsSafe $orgResults (Test-OrgAudit -OrgUrl $OrgUrl -Header $header)
-    Add-ResultsSafe $orgResults (Test-OrgPipelineSettings -OrgUrl $OrgUrl -Header $header)
-    Add-ResultsSafe $orgResults (Test-OrgFeeds -OrgUrl $OrgUrl -Header $header)
-    Add-ResultsSafe $orgResults (Test-OrgPatPolicy -OrgUrl $OrgUrl -Header $header)
-    Add-ResultsSafe $orgResults (Test-UserPats -OrgShortName $OrgShortName -Header $header)
-    Add-ResultsSafe $orgResults (Test-OrgWidePats -OrgUrl $OrgUrl -Header $header)
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgPolicies';         Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgPolicies -OrgUrl $OrgUrl -Header $header) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgUsers';            Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgUsers -OrgUrl $OrgUrl -Header $header -IncludeGraphCheck:$IncludeGraphCheck) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgAdmins';           Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgAdmins -OrgUrl $OrgUrl -Header $header) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgExtensions';       Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgExtensions -OrgUrl $OrgUrl -Header $header) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgAudit';            Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgAudit -OrgUrl $OrgUrl -Header $header) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgPipelineSettings'; Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgPipelineSettings -OrgUrl $OrgUrl -Header $header) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgFeeds';            Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgFeeds -OrgUrl $OrgUrl -Header $header) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgPatPolicy';        Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgPatPolicy -OrgUrl $OrgUrl -Header $header) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='UserPats';            Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-UserPats -OrgShortName $OrgShortName -Header $header) }).TotalMilliseconds })
+    $orgTimings.Add([PSCustomObject]@{ Name='OrgWidePats';         Ms=(Measure-Command { Add-ResultsSafe $orgResults (Test-OrgWidePats -OrgUrl $OrgUrl -Header $header) }).TotalMilliseconds })
 
     $orgReportPath = Join-Path $OutputPath "$orgSafeName-org-assessment.md"
     Write-AssessmentReport -FilePath $orgReportPath -Title "Organization Quick Review: $OrgShortName" -Scope "Organization: $OrgUrl" -Results $orgResults
@@ -3732,7 +3886,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
     Write-Host "  Org Results: $orgPass PASS | $orgFail FAIL | $orgNC NOT CHECKED" -ForegroundColor $(if ($orgFail -gt 0) { 'Red' } else { 'Green' })
     Write-Host ""
 
-    $orgResult = [PSCustomObject]@{ Pass = $orgPass; Fail = $orgFail; NotChecked = $orgNC; ReportFile = $orgReportPath; Results = $orgResults }
+    $orgResult = [PSCustomObject]@{ Pass = $orgPass; Fail = $orgFail; NotChecked = $orgNC; ReportFile = $orgReportPath; Results = $orgResults; Timings = $orgTimings }
 
     # --- Phase 2: Project Assessments ---
     $parallelResults = [System.Collections.Generic.List[PSCustomObject]]::new()
@@ -3742,20 +3896,21 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
         Write-Host "========================================" -ForegroundColor Cyan
 
         $projResults = [System.Collections.Generic.List[PSCustomObject]]::new()
+        $projTimings = [System.Collections.Generic.List[PSCustomObject]]::new()
 
         $projInfo = Invoke-AzCli -Command "devops project show --project `"$projName`" --org $OrgUrl -o json"
         $projId = if ($projInfo) { $projInfo.id } else { "" }
 
-        Add-ResultsSafe $projResults (Test-ProjectSettings -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
-        Add-ResultsSafe $projResults (Test-BuildPipelines -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
-        Add-ResultsSafe $projResults (Test-ReleasePipelines -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
-        Add-ResultsSafe $projResults (Test-ServiceConnections -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
-        Add-ResultsSafe $projResults (Test-AgentPools -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
-        Add-ResultsSafe $projResults (Test-Repositories -OrgUrl $OrgUrl -ProjectName $projName -ProjectId $projId -Header $header)
-        Add-ResultsSafe $projResults (Test-ProjectFeeds -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
-        Add-ResultsSafe $projResults (Test-SecureFiles -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
-        Add-ResultsSafe $projResults (Test-Environments -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
-        Add-ResultsSafe $projResults (Test-VariableGroups -OrgUrl $OrgUrl -ProjectName $projName -Header $header)
+        $projTimings.Add([PSCustomObject]@{ Name='ProjectSettings';    Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-ProjectSettings -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='BuildPipelines';     Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-BuildPipelines -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='ReleasePipelines';   Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-ReleasePipelines -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='ServiceConnections'; Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-ServiceConnections -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='AgentPools';         Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-AgentPools -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='Repositories';       Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-Repositories -OrgUrl $OrgUrl -ProjectName $projName -ProjectId $projId -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='ProjectFeeds';       Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-ProjectFeeds -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='SecureFiles';        Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-SecureFiles -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='Environments';       Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-Environments -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
+        $projTimings.Add([PSCustomObject]@{ Name='VariableGroups';     Ms=(Measure-Command { Add-ResultsSafe $projResults (Test-VariableGroups -OrgUrl $OrgUrl -ProjectName $projName -Header $header) }).TotalMilliseconds })
 
         $projSafeName = Get-SafeFileName $projName
         $projReportPath = Join-Path $OutputPath "$orgSafeName-$projSafeName-assessment.md"
@@ -3774,6 +3929,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -gt 1 -and $PSVersionTable.PSVer
             Fail       = $projFail
             NotChecked = $projNC
             Results    = $projResults
+            Timings    = $projTimings
         })
     }
 }
@@ -3905,6 +4061,30 @@ if ($writeJson) {
         -ProjectResults $projectResultsForJson `
         -ElapsedSeconds $elapsed.TotalSeconds
 }
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "  Phase Timings (ms)" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+if ($orgResult -and $orgResult.PSObject.Properties['Timings'] -and $orgResult.Timings) {
+    $orgTotal = ($orgResult.Timings | Measure-Object -Property Ms -Sum).Sum
+    Write-Host ("  [Org]  total: {0,8:N0} ms" -f $orgTotal) -ForegroundColor Yellow
+    $orgResult.Timings | Sort-Object Ms -Descending | ForEach-Object {
+        Write-Host ("    {0,-22} {1,9:N0} ms" -f $_.Name, $_.Ms)
+    }
+}
+if ($parallelResults) {
+    foreach ($pr in ($parallelResults | Sort-Object Project)) {
+        if (-not ($pr.PSObject.Properties['Timings']) -or -not $pr.Timings) { continue }
+        $projTotal   = ($pr.Timings | Measure-Object -Property Ms -Sum).Sum
+        $projSlowest = ($pr.Timings | Measure-Object -Property Ms -Maximum).Maximum
+        Write-Host ("  [Proj] {0}  sum: {1,8:N0} ms  slowest-category: {2,8:N0} ms" -f $pr.Project, $projTotal, $projSlowest) -ForegroundColor Yellow
+        $pr.Timings | Sort-Object Ms -Descending | ForEach-Object {
+            Write-Host ("    {0,-22} {1,9:N0} ms" -f $_.Name, $_.Ms)
+        }
+    }
+}
+Write-Host ""
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan

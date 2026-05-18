@@ -39,3 +39,6 @@ assessments/
 *~
 *.tmp
 *.bak
+
+# ── User settings (local overrides — not committed) ──
+adoqr.settings.psd1

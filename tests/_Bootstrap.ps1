@@ -24,6 +24,7 @@ $wantedFns = @(
     'Export-AssessmentToJson'
     'Get-PriorScanRuns'
     'Build-ComparisonSectionHtml'
+    'Import-AdoqrSettings'
 )
 
 $funcs = $tree.FindAll({

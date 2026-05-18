@@ -13,9 +13,13 @@ A bundled **GitHub Copilot skill** is included to help you refine the script,
 interpret results, and explore remediation options through natural language
 in VS Code.
 
-![report executive summary](https://github.com/microsoft/adoqr/blob/main/assets/exec_summary.png?raw=1)
+![report executive summary](assets/exec_summary.png)
 
 ## What adoqr Checks
+
+> **Browse the full controls reference:** [Controls reference →](https://microsoft.github.io/adoqr/controls.html)
+> — a searchable catalogue of every control evaluated by adoqr, with descriptions,
+> step-by-step remediation, and links to Microsoft Learn.
 
 Azure DevOps Quick Review evaluates your ADO resources across the following
 areas, with 115+ individual best-practice checks:
@@ -83,6 +87,30 @@ az login
 Reports are saved to a timestamped subfolder under `assessments/`. The
 executive HTML summary auto-opens in your browser when the assessment
 completes.
+
+### Configuration File (optional)
+
+By default adoqr flags repositories and projects as inactive after **180 days**
+without a commit. If you want a different threshold, create a settings file
+named `adoqr.settings.psd1` in the same directory as `invoke-adoqr.ps1`:
+
+```powershell
+# Copy the example file and uncomment / edit the values you want to change
+Copy-Item adoqr.settings.example.psd1 adoqr.settings.psd1
+```
+
+Edit the new file and uncomment the setting you want to override, for example:
+
+```powershell
+@{
+    # Flag repos / projects with no commits in the last 90 days (default: 180)
+    InactiveRepoDays = 90
+}
+```
+
+`adoqr.settings.psd1` is listed in `.gitignore` so your local overrides are
+never committed. All settings are optional — only add the keys you want to
+change.
 
 ## Usage
 
@@ -244,7 +272,7 @@ adopting the recommended best practices.
   exactly where to navigate in Azure DevOps and what to change.
 - After applying changes, re-run adoqr to verify the items are resolved.
 
-![sample remediation plan](https://github.com/microsoft/adoqr/blob/main/assets/remediation_steps.png?raw=1)
+![sample remediation plan](assets/remediation_steps.png)
 
 ## Copilot Skill
 

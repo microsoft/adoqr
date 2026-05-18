@@ -150,3 +150,56 @@ Describe 'Test-PolicyAppliesToBranch' {
         Test-PolicyAppliesToBranch -Policy $null -RepoId $RepoA -RefName 'refs/heads/main' | Should -BeFalse
     }
 }
+
+Describe 'Import-AdoqrSettings' {
+    BeforeAll {
+        $script:TempDir = [System.IO.Path]::GetTempPath() | Join-Path -ChildPath ([System.IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
+    }
+
+    AfterAll {
+        if (Test-Path $script:TempDir) { Remove-Item $script:TempDir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'returns an empty hashtable when the settings file does not exist' {
+        $result = Import-AdoqrSettings -Path (Join-Path $script:TempDir 'nonexistent.psd1')
+        $result | Should -BeOfType [hashtable]
+        $result.Count | Should -Be 0
+    }
+
+    It 'returns an empty hashtable when InactiveRepoDays is absent from the file' {
+        $file = Join-Path $script:TempDir 'empty.psd1'
+        Set-Content -Path $file -Value '@{}'
+        $result = Import-AdoqrSettings -Path $file
+        $result.Count | Should -Be 0
+    }
+
+    It 'returns InactiveRepoDays when it is a positive integer' {
+        $file = Join-Path $script:TempDir 'valid.psd1'
+        Set-Content -Path $file -Value '@{ InactiveRepoDays = 90 }'
+        $result = Import-AdoqrSettings -Path $file
+        $result['InactiveRepoDays'] | Should -Be 90
+    }
+
+    It 'ignores InactiveRepoDays when it is zero' {
+        $file = Join-Path $script:TempDir 'zero.psd1'
+        Set-Content -Path $file -Value '@{ InactiveRepoDays = 0 }'
+        $result = Import-AdoqrSettings -Path $file
+        $result.ContainsKey('InactiveRepoDays') | Should -BeFalse
+    }
+
+    It 'ignores InactiveRepoDays when it is a string' {
+        $file = Join-Path $script:TempDir 'string.psd1'
+        Set-Content -Path $file -Value "@{ InactiveRepoDays = 'notanumber' }"
+        $result = Import-AdoqrSettings -Path $file
+        $result.ContainsKey('InactiveRepoDays') | Should -BeFalse
+    }
+
+    It 'returns an empty hashtable for a malformed (non-parseable) file' {
+        $file = Join-Path $script:TempDir 'bad.psd1'
+        Set-Content -Path $file -Value 'this is not valid psd1 {{ broken'
+        $result = Import-AdoqrSettings -Path $file
+        $result | Should -BeOfType [hashtable]
+        $result.Count | Should -Be 0
+    }
+}
