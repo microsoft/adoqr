@@ -655,6 +655,95 @@ function Export-AssessmentToJson {
     [System.IO.File]::WriteAllText($FilePath, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Import-ScanRunFromMarkdownReports {
+    <#
+    .SYNOPSIS
+        Reconstructs lightweight comparison data from generated Markdown reports.
+    .DESCRIPTION
+        Used as a compatibility fallback for runs created before JSON output was
+        enabled. The parser reads the stable Control Results table emitted by
+        Write-AssessmentReport and returns the same lightweight shape consumed
+        by Build-ComparisonSectionHtml.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RunDirectory,
+        [Parameter(Mandatory)][string]$OrgSafeName
+    )
+
+    if (-not (Test-Path $RunDirectory -PathType Container -ErrorAction SilentlyContinue)) {
+        return $null
+    }
+
+    $reportFiles = @(Get-ChildItem -Path $RunDirectory -Filter "$OrgSafeName-*-assessment.md" -File -ErrorAction SilentlyContinue)
+    if ($reportFiles.Count -eq 0) { return $null }
+
+    $controls = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $dates = [System.Collections.Generic.List[datetime]]::new()
+    $orgName = $OrgSafeName
+
+    foreach ($file in $reportFiles) {
+        $raw = Get-Content -Raw $file.FullName -ErrorAction SilentlyContinue
+        if (-not $raw) { continue }
+
+        $scopeType = 'organization'
+        $projectName = $null
+        if ($raw -match '(?m)^#\s+Organization Quick Review:\s*(.+?)\s*$') {
+            $orgName = $Matches[1].Trim()
+        }
+        elseif ($raw -match '(?m)^#\s+Project Quick Review:\s*(.+?)\s*$') {
+            $scopeType = 'project'
+            $projectName = $Matches[1].Trim()
+        }
+
+        if ($raw -match '\|\s*\*\*Assessment Date\*\*\s*\|\s*([^|]+?)\s*\|') {
+            $parsedDate = [datetime]::MinValue
+            if ([datetime]::TryParse($Matches[1].Trim(), [ref]$parsedDate)) {
+                $dates.Add($parsedDate)
+            }
+        }
+
+        foreach ($line in ($raw -split "`r?`n")) {
+            $match = [regex]::Match(
+                $line,
+                '^\|\s*[^|]*\|\s*(?<status>PASS|FAIL|NOT CHECKED)\s*\|\s*[^|]*?(?<severity>High|Medium|Low)\s*\|\s*(?<id>[^:|]+):\s*(?<control>[^|]+?)\s*\|'
+            )
+            if (-not $match.Success) { continue }
+
+            $controls.Add([PSCustomObject]@{
+                id       = $match.Groups['id'].Value.Trim()
+                status   = $match.Groups['status'].Value.Trim().ToUpperInvariant()
+                severity = $match.Groups['severity'].Value.Trim()
+                control  = $match.Groups['control'].Value.Trim()
+                scope    = [PSCustomObject]@{
+                    type         = $scopeType
+                    organization = $orgName
+                    project      = $projectName
+                }
+            })
+        }
+    }
+
+    if ($controls.Count -eq 0) { return $null }
+
+    $generatedAt = if ($dates.Count -gt 0) {
+        ($dates | Sort-Object -Descending | Select-Object -First 1).ToString('o')
+    } else {
+        (Get-Item $RunDirectory).LastWriteTime.ToString('o')
+    }
+
+    [PSCustomObject]@{
+        meta         = [PSCustomObject]@{ generatedAt = $generatedAt }
+        organization = [PSCustomObject]@{ name = $orgName; url = $null }
+        summary      = [PSCustomObject]@{
+            pass       = @($controls | Where-Object status -eq 'PASS').Count
+            fail       = @($controls | Where-Object status -eq 'FAIL').Count
+            notChecked = @($controls | Where-Object status -eq 'NOT CHECKED').Count
+        }
+        controls     = $controls
+    }
+}
+
 function Get-PriorScanRuns {
     <#
     .SYNOPSIS
@@ -667,7 +756,8 @@ function Get-PriorScanRuns {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$AssessmentsRoot,
-        [Parameter(Mandatory)][string]$OrgSafeName
+        [Parameter(Mandatory)][string]$OrgSafeName,
+        [string]$ExcludeRunId = ''
     )
 
     $runs = [System.Collections.Generic.List[PSCustomObject]]::new()
@@ -675,9 +765,11 @@ function Get-PriorScanRuns {
         return
     }
 
+    $seenRunIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $scanFiles = Get-ChildItem -Path $AssessmentsRoot -Filter "$OrgSafeName-scan.json" -Recurse -Depth 2 -ErrorAction SilentlyContinue
 
     foreach ($f in $scanFiles) {
+        if ($ExcludeRunId -and $f.Directory.Name -eq $ExcludeRunId) { continue }
         try {
             $raw = Get-Content -Raw $f.FullName -ErrorAction SilentlyContinue
             if (-not $raw) { continue }
@@ -691,8 +783,29 @@ function Get-PriorScanRuns {
                 FilePath    = $f.FullName
                 Doc         = $doc
             })
+            [void]$seenRunIds.Add($f.Directory.Name)
         }
         catch { <# Skip files that cannot be read or parsed #> }
+    }
+
+    $runDirs = @(Get-ChildItem -Path $AssessmentsRoot -Directory -Filter "$OrgSafeName-*" -ErrorAction SilentlyContinue)
+    foreach ($dir in $runDirs) {
+        if ($ExcludeRunId -and $dir.Name -eq $ExcludeRunId) { continue }
+        if ($seenRunIds.Contains($dir.Name)) { continue }
+
+        try {
+            $doc = Import-ScanRunFromMarkdownReports -RunDirectory $dir.FullName -OrgSafeName $OrgSafeName
+            if (-not $doc -or -not $doc.meta -or -not $doc.meta.generatedAt) { continue }
+            $ts = [datetime]::MinValue
+            if (-not [datetime]::TryParse($doc.meta.generatedAt, [ref]$ts)) { continue }
+            $runs.Add([PSCustomObject]@{
+                RunId       = $dir.Name
+                GeneratedAt = $ts
+                FilePath    = $dir.FullName
+                Doc         = $doc
+            })
+        }
+        catch { <# Skip folders whose Markdown cannot be parsed #> }
     }
 
     $runs | Sort-Object GeneratedAt -Descending
@@ -894,9 +1007,9 @@ function Build-ComparisonSectionHtml {
     <section class="section" id="comparison-section" aria-label="Run comparison">
       <h2>&#128202; Run Comparison</h2>
       <p id="cmp-nodata" style="color:var(--text2)">No previous scan data available for comparison.
-        Run with <code style="background:var(--surface2);padding:.1rem .4rem;border-radius:4px">-OutputFormat json</code>
-        or <code style="background:var(--surface2);padding:.1rem .4rem;border-radius:4px">-OutputFormat all</code>
-        on multiple scans to enable this view.</p>
+                Keep prior assessment folders, or run with <code style="background:var(--surface2);padding:.1rem .4rem;border-radius:4px">-OutputFormat json</code>
+                or <code style="background:var(--surface2);padding:.1rem .4rem;border-radius:4px">-OutputFormat all</code>
+                for richer scan data.</p>
       <div id="cmp-ui" style="display:none">
         <div class="cmp-pickers">
           <div class="cmp-picker-grp">
@@ -3998,7 +4111,7 @@ $currentRunDoc = [PSCustomObject]@{
 
 # Discover prior scan JSON files from sibling run folders.
 $assessmentsParent = Split-Path $OutputPath -Parent
-$priorRuns = Get-PriorScanRuns -AssessmentsRoot $assessmentsParent -OrgSafeName $orgSafeName
+$priorRuns = Get-PriorScanRuns -AssessmentsRoot $assessmentsParent -OrgSafeName $orgSafeName -ExcludeRunId (Split-Path $OutputPath -Leaf)
 
 $allRunsForCompare = [System.Collections.Generic.List[PSCustomObject]]::new()
 $allRunsForCompare.Add($currentRunDoc)

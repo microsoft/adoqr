@@ -45,6 +45,40 @@ BeforeAll {
             scope    = [PSCustomObject]@{ type = 'organization'; organization = 'TestOrg'; project = $null }
         }
     }
+
+    function script:New-AssessmentMarkdown {
+        param(
+            [string]$Dir,
+            [string]$FileName,
+            [string]$Title,
+            [string]$Scope,
+            [string]$AssessmentDate,
+            [string[]]$Rows
+        )
+
+        $content = @(
+            "# $Title"
+            ''
+            '| Field | Value |'
+            '|-------|-------|'
+            "| **Assessment Date** | $AssessmentDate |"
+            "| **Scope** | $Scope |"
+            '| **Assessor** | invoke-adoqr.ps1 |'
+            ''
+            '## Summary'
+            ''
+            '`1 PASS | 1 FAIL | 1 NOT CHECKED`'
+            ''
+            '## Control Results'
+            ''
+            '| | Status | Severity | Control | Finding |'
+            '|---|--------|----------|---------|---------|'
+        ) + $Rows
+
+        $path = Join-Path $Dir $FileName
+        $content -join "`n" | Set-Content -Path $path -Encoding utf8
+        return $path
+    }
 }
 
 Describe 'Get-PriorScanRuns' {
@@ -111,6 +145,71 @@ Describe 'Get-PriorScanRuns' {
             $result = @(Get-PriorScanRuns -AssessmentsRoot $tmpRoot -OrgSafeName 'orga')
             $result.Count | Should -Be 1
             $result[0].RunId | Should -Be 'orgA-2026-01-01-120000'
+        }
+        finally { Remove-Item $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'discovers prior Markdown-only assessment folders' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        $runA = Join-Path $tmpRoot 'myorg-2026-01-01-120000'
+        New-Item -ItemType Directory -Path $runA | Out-Null
+        try {
+            New-AssessmentMarkdown `
+                -Dir $runA `
+                -FileName 'myorg-org-assessment.md' `
+                -Title 'Organization Quick Review: MyOrg' `
+                -Scope 'Organization: https://dev.azure.com/MyOrg' `
+                -AssessmentDate '2026-01-01 12:00:00' `
+                -Rows @(
+                    '| X | PASS | High | AUTH-01: AAD Authentication | ok |'
+                    '| X | FAIL | Medium | AUTH-02: External User Access Disabled | bad |'
+                ) | Out-Null
+
+            New-AssessmentMarkdown `
+                -Dir $runA `
+                -FileName 'myorg-web-assessment.md' `
+                -Title 'Project Quick Review: Web' `
+                -Scope 'Organization: https://dev.azure.com/MyOrg | Project: Web' `
+                -AssessmentDate '2026-01-01 12:00:05' `
+                -Rows @('| X | NOT CHECKED | Low | REPO-01: Inactive Repositories | manual |') | Out-Null
+
+            $result = @(Get-PriorScanRuns -AssessmentsRoot $tmpRoot -OrgSafeName 'myorg')
+            $result.Count | Should -Be 1
+            $result[0].RunId | Should -Be 'myorg-2026-01-01-120000'
+            $result[0].Doc.summary.pass | Should -Be 1
+            $result[0].Doc.summary.fail | Should -Be 1
+            $result[0].Doc.summary.notChecked | Should -Be 1
+            @($result[0].Doc.controls).Count | Should -Be 3
+            @($result[0].Doc.controls | Where-Object { $_.scope.type -eq 'project' -and $_.scope.project -eq 'Web' }).Count | Should -Be 1
+        }
+        finally { Remove-Item $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'excludes the active output folder from prior run discovery' {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+        $currentRun = Join-Path $tmpRoot 'myorg-2026-05-01-120000'
+        $priorRun = Join-Path $tmpRoot 'myorg-2026-04-01-120000'
+        New-Item -ItemType Directory -Path $currentRun | Out-Null
+        New-Item -ItemType Directory -Path $priorRun | Out-Null
+        try {
+            New-AssessmentMarkdown `
+                -Dir $currentRun `
+                -FileName 'myorg-org-assessment.md' `
+                -Title 'Organization Quick Review: MyOrg' `
+                -Scope 'Organization: https://dev.azure.com/MyOrg' `
+                -AssessmentDate '2026-05-01 12:00:00' `
+                -Rows @('| X | PASS | High | AUTH-01: AAD Authentication | ok |') | Out-Null
+            New-AssessmentMarkdown `
+                -Dir $priorRun `
+                -FileName 'myorg-org-assessment.md' `
+                -Title 'Organization Quick Review: MyOrg' `
+                -Scope 'Organization: https://dev.azure.com/MyOrg' `
+                -AssessmentDate '2026-04-01 12:00:00' `
+                -Rows @('| X | FAIL | High | AUTH-01: AAD Authentication | bad |') | Out-Null
+
+            $result = @(Get-PriorScanRuns -AssessmentsRoot $tmpRoot -OrgSafeName 'myorg' -ExcludeRunId 'myorg-2026-05-01-120000')
+            $result.Count | Should -Be 1
+            $result[0].RunId | Should -Be 'myorg-2026-04-01-120000'
         }
         finally { Remove-Item $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue }
     }
