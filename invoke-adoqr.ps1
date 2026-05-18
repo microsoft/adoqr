@@ -244,45 +244,6 @@ function Invoke-AzCli {
     }
 }
 
-function Invoke-AzCliBatch {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string[]]$Commands
-    )
-
-    $results = @{}
-    $uniqueCommands = @($Commands | Where-Object { $_ } | Select-Object -Unique)
-    if ($uniqueCommands.Count -eq 0) { return $results }
-    if ($uniqueCommands.Count -eq 1 -or $PSVersionTable.PSVersion.Major -lt 7) {
-        foreach ($cmd in $uniqueCommands) { $results[$cmd] = Invoke-AzCli -Command $cmd }
-        return $results
-    }
-
-    $invokeAzCliDef = (Get-Item Function:\Invoke-AzCli).Definition
-    $jobs = foreach ($cmd in $uniqueCommands) {
-        Start-ThreadJob -ScriptBlock {
-            param($fn, $command)
-            . ([scriptblock]::Create("function Invoke-AzCli {`n$fn`n}"))
-            [PSCustomObject]@{
-                Command = $command
-                Result  = Invoke-AzCli -Command $command
-            }
-        } -ArgumentList $invokeAzCliDef, $cmd
-    }
-
-    $jobs | Wait-Job | ForEach-Object {
-        $jobOutput = Receive-Job $_ -ErrorAction SilentlyContinue
-        Remove-Job $_ -Force
-        foreach ($item in @($jobOutput)) {
-            if ($item -and $item.PSObject.Properties['Command']) {
-                $results[$item.Command] = $item.Result
-            }
-        }
-    }
-
-    return $results
-}
-
 function Get-ControlCategory {
     <#
     .SYNOPSIS
@@ -406,12 +367,72 @@ function Get-SafeProperty {
 function Test-IsGuestMember {
     param($Member)
     $mail = Get-SafeProperty $Member 'mailAddress'
+    if (-not $mail) { $mail = Get-SafeProperty $Member 'principalName' }
     $alias = Get-SafeProperty $Member 'directoryAlias'
     $displayName = Get-SafeProperty $Member 'displayName'
     if ($mail -and $mail -imatch '#EXT#') { return $true }
     if ($alias -and $alias -imatch '#EXT#') { return $true }
     if ($displayName -and $displayName -imatch '#EXT#') { return $true }
     return $false
+}
+
+function Get-AdoGraphSubjectDescriptor {
+    param([string]$OrgUrl, [hashtable]$Header, [string]$StorageKey)
+    if (-not $StorageKey) { return $null }
+
+    $descriptor = Invoke-AdoApi -Uri "$($script:VsspsUrl)/_apis/graph/descriptors/$StorageKey`?api-version=7.1-preview.1" -Header $Header
+    if ($descriptor) { return Get-SafeProperty $descriptor 'value' }
+    return $null
+}
+
+function Get-AdoGraphProjectGroups {
+    param([string]$OrgUrl, [string]$ProjectId, [hashtable]$Header)
+
+    $scopeDescriptor = Get-AdoGraphSubjectDescriptor -OrgUrl $OrgUrl -Header $Header -StorageKey $ProjectId
+    if (-not $scopeDescriptor) { return @() }
+
+    $groups = Invoke-AdoApi -Uri "$($script:VsspsUrl)/_apis/graph/groups?scopeDescriptor=$([System.Uri]::EscapeDataString($scopeDescriptor))&api-version=7.1-preview.1" -Header $Header
+    if ($groups -and $groups.value) { return @($groups.value) }
+    return @()
+}
+
+function Get-AdoGraphSubjectsByDescriptor {
+    param([string]$OrgUrl, [hashtable]$Header, [string[]]$Descriptors)
+
+    $uniqueDescriptors = @($Descriptors | Where-Object { $_ } | Select-Object -Unique)
+    if ($uniqueDescriptors.Count -eq 0) { return @{} }
+
+    $body = @{
+        lookupKeys = @($uniqueDescriptors | ForEach-Object { @{ descriptor = $_ } })
+    } | ConvertTo-Json -Depth 5
+
+    $lookup = Invoke-AdoApi -Uri "$($script:VsspsUrl)/_apis/graph/subjectlookup?api-version=7.1-preview.1" -Header $Header -Method 'POST' -Body $body
+    $subjectMap = @{}
+    if ($lookup -and $lookup.value) {
+        foreach ($subject in @($lookup.value)) {
+            $descriptor = Get-SafeProperty $subject 'descriptor'
+            if ($descriptor) { $subjectMap[$descriptor] = $subject }
+        }
+    }
+    return $subjectMap
+}
+
+function Get-AdoGraphGroupMembers {
+    param([string]$OrgUrl, [hashtable]$Header, [string]$GroupDescriptor)
+    if (-not $GroupDescriptor) { return @() }
+
+    $encodedDescriptor = [System.Uri]::EscapeDataString($GroupDescriptor)
+    $memberships = Invoke-AdoApi -Uri "$($script:VsspsUrl)/_apis/graph/memberships/$encodedDescriptor`?direction=down&depth=1&api-version=7.1-preview.1" -Header $Header
+    if (-not $memberships -or -not $memberships.value) { return @() }
+
+    $memberDescriptors = @($memberships.value | ForEach-Object { Get-SafeProperty $_ 'memberDescriptor' } | Where-Object { $_ })
+    $subjectMap = Get-AdoGraphSubjectsByDescriptor -OrgUrl $OrgUrl -Header $Header -Descriptors $memberDescriptors
+
+    $members = foreach ($descriptor in $memberDescriptors) {
+        if ($subjectMap.ContainsKey($descriptor)) { $subjectMap[$descriptor] }
+        else { [PSCustomObject]@{ descriptor = $descriptor; displayName = $descriptor } }
+    }
+    return @($members)
 }
 
 function Test-IsProductionStage {
@@ -1614,22 +1635,10 @@ function Test-OrgAdmins {
         $pcsaGroup = $groups.value | Where-Object { $_.displayName -eq 'Project Collection Service Accounts' } | Select-Object -First 1
     }
 
-    $membershipCommands = @{}
-    if ($pcaGroup) {
-        $membershipCommands['pca'] = "devops security group membership list --id `"$($pcaGroup.descriptor)`" --org $OrgUrl -o json"
-    }
-    if ($pcsaGroup) {
-        $membershipCommands['pcsa'] = "devops security group membership list --id `"$($pcsaGroup.descriptor)`" --org $OrgUrl -o json"
-    }
-    $membershipResults = Invoke-AzCliBatch -Commands @($membershipCommands.Values)
-
     # PCA members
     $pcaMembers = @()
-    if ($pcaGroup -and $membershipCommands.ContainsKey('pca')) {
-        $memberships = $membershipResults[$membershipCommands['pca']]
-        if ($memberships) {
-            $pcaMembers = @($memberships.PSObject.Properties | ForEach-Object { $_.Value })
-        }
+    if ($pcaGroup) {
+        $pcaMembers = @(Get-AdoGraphGroupMembers -OrgUrl $OrgUrl -Header $Header -GroupDescriptor $pcaGroup.descriptor)
     }
 
     # ADMIN-01: Manual review
@@ -1657,9 +1666,8 @@ function Test-OrgAdmins {
 
     # ADMIN-06: PCSA Group
     if ($pcsaGroup) {
-        $pcsaMemberships = $membershipResults[$membershipCommands['pcsa']]
-        $pcsaCount = 0
-        if ($pcsaMemberships) { $pcsaCount = @($pcsaMemberships.PSObject.Properties).Count }
+        $pcsaMembers = @(Get-AdoGraphGroupMembers -OrgUrl $OrgUrl -Header $Header -GroupDescriptor $pcsaGroup.descriptor)
+        $pcsaCount = $pcsaMembers.Count
         if ($pcsaCount -le 3) {
             $results.Add((New-ControlResult -Id "ADMIN-06" -Status "PASS" -Severity "High" -Control "Project Collection Service Accounts" -Finding "PCSA group has $pcsaCount member(s)."))
         } else {
@@ -1993,27 +2001,17 @@ function Test-ProjectSettings {
     }
 
     # Project admin groups
-    $groups = Invoke-AzCli -Command "devops security group list --org $OrgUrl --project `"$ProjectName`" -o json"
+    $groups = if ($projectInfo) { Get-AdoGraphProjectGroups -OrgUrl $OrgUrl -ProjectId $projectInfo.id -Header $Header } else { @() }
     $paGroup = $null
     $baGroup = $null
-    if ($groups -and $groups.graphGroups) {
-        $paGroup = $groups.graphGroups | Where-Object { $_.displayName -eq 'Project Administrators' } | Select-Object -First 1
-        $baGroup = $groups.graphGroups | Where-Object { $_.displayName -eq 'Build Administrators' } | Select-Object -First 1
+    if ($groups) {
+        $paGroup = $groups | Where-Object { $_.displayName -eq 'Project Administrators' } | Select-Object -First 1
+        $baGroup = $groups | Where-Object { $_.displayName -eq 'Build Administrators' } | Select-Object -First 1
     }
 
     $paMembers = @()
-    $membershipCommands = @{}
     if ($paGroup) {
-        $membershipCommands['pa'] = "devops security group membership list --id `"$($paGroup.descriptor)`" --org $OrgUrl -o json"
-    }
-    if ($baGroup) {
-        $membershipCommands['ba'] = "devops security group membership list --id `"$($baGroup.descriptor)`" --org $OrgUrl -o json"
-    }
-    $membershipResults = Invoke-AzCliBatch -Commands @($membershipCommands.Values)
-
-    if ($paGroup -and $membershipCommands.ContainsKey('pa')) {
-        $paMembership = $membershipResults[$membershipCommands['pa']]
-        if ($paMembership) { $paMembers = @($paMembership.PSObject.Properties | ForEach-Object { $_.Value }) }
+        $paMembers = @(Get-AdoGraphGroupMembers -OrgUrl $OrgUrl -Header $Header -GroupDescriptor $paGroup.descriptor)
     }
 
     # PROJ-02: Manual
@@ -2035,9 +2033,8 @@ function Test-ProjectSettings {
 
     # PROJ-05: Build Admin count
     $baMembers = @()
-    if ($baGroup -and $membershipCommands.ContainsKey('ba')) {
-        $baMembership = $membershipResults[$membershipCommands['ba']]
-        if ($baMembership) { $baMembers = @($baMembership.PSObject.Properties | ForEach-Object { $_.Value }) }
+    if ($baGroup) {
+        $baMembers = @(Get-AdoGraphGroupMembers -OrgUrl $OrgUrl -Header $Header -GroupDescriptor $baGroup.descriptor)
     }
     if ($baMembers.Count -le 100) {
         $results.Add((New-ControlResult -Id "PROJ-05" -Status "PASS" -Severity "Medium" -Control "Build Admin Count (Max 100)" -Finding "Build admin count: $($baMembers.Count) (≤ 100)."))
@@ -3327,7 +3324,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -ge 1 -and $PSVersionTable.PSVer
     $projectCount = $projectNames.Count
     $projectWorkerBudget = 6
     $allFunctionDefs = (Get-ChildItem Function: | Where-Object {
-        $_.Name -match '^(Invoke-AdoApi|Invoke-AzCli|New-ControlResult|Test-|Get-Safe|Get-ControlCategory|Write-Assessment|Add-ResultsSafe)'
+        $_.Name -match '^(Invoke-AdoApi|Invoke-AzCli|New-ControlResult|Test-|Get-Safe|Get-AdoGraph|Get-ControlCategory|Write-Assessment|Add-ResultsSafe)'
     } | ForEach-Object {
         "function $($_.Name) {`n$($_.Definition)`n}"
     }) -join "`n`n"
