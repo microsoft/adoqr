@@ -13,9 +13,13 @@ A bundled **GitHub Copilot skill** is included to help you refine the script,
 interpret results, and explore remediation options through natural language
 in VS Code.
 
-![report executive summary](https://github.com/microsoft/adoqr/blob/main/assets/exec_summary.png?raw=1)
+![report executive summary](assets/exec_summary.png)
 
 ## What adoqr Checks
+
+> **Browse the full controls reference:** [Controls reference →](https://microsoft.github.io/adoqr/controls.html)
+> — a searchable catalogue of every control evaluated by adoqr, with descriptions,
+> step-by-step remediation, and links to Microsoft Learn.
 
 Azure DevOps Quick Review evaluates your ADO resources across the following
 areas, with 115+ individual best-practice checks:
@@ -268,7 +272,7 @@ adopting the recommended best practices.
   exactly where to navigate in Azure DevOps and what to change.
 - After applying changes, re-run adoqr to verify the items are resolved.
 
-![sample remediation plan](https://github.com/microsoft/adoqr/blob/main/assets/remediation_steps.png?raw=1)
+![sample remediation plan](assets/remediation_steps.png)
 
 ## Copilot Skill
 

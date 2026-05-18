@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADO-QR Remediation Steps Reference</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
+      --text: #f1f5f9; --text2: #94a3b8; --accent: #3b82f6;
+      --radius: 12px; --shadow: 0 4px 24px rgba(0,0,0,.3);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); color: var(--text); margin: 0; padding: 0; line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    header {
+      background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+      padding: 2.5rem 0; border-bottom: 1px solid var(--surface2);
+    }
+    header h1 { margin: 0 0 .25rem; font-size: 1.85rem; font-weight: 700; }
+    header .subtitle { color: var(--text2); font-size: .95rem; margin: 0; }
+
+    .toolbar {
+      display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+      margin: 1.5rem 0 2rem;
+    }
+    .toolbar input[type="search"] {
+      flex: 1; min-width: 220px;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--surface2); border-radius: var(--radius);
+      padding: .65rem 1rem; font-size: .95rem; outline: none;
+    }
+    .toolbar input[type="search"]:focus { border-color: var(--accent); }
+    .toolbar .count {
+      color: var(--text2); font-size: .85rem;
+    }
+
+    .toc {
+      background: var(--surface); border-radius: var(--radius);
+      padding: 1.25rem 1.5rem; margin-bottom: 2rem;
+      box-shadow: var(--shadow); border-left: 4px solid var(--accent);
+    }
+    .toc h2 { margin: 0 0 .75rem; font-size: 1rem; font-weight: 700; }
+    .toc ul {
+      list-style: none; padding: 0; margin: 0;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: .35rem .75rem;
+    }
+    .toc li { font-size: .88rem; }
+
+    .control-card {
+      background: var(--surface); border-radius: var(--radius);
+      margin-bottom: 1rem; box-shadow: var(--shadow); overflow: hidden;
+      border-left: 4px solid var(--accent);
+    }
+    .control-card h3 {
+      margin: 0; padding: 1rem 1.5rem;
+      font-size: 1.05rem; font-weight: 700;
+      background: rgba(59, 130, 246, .08);
+      border-bottom: 1px solid var(--surface2);
+    }
+    .control-body { padding: 1rem 1.5rem 1.25rem; }
+    .control-body .description {
+      margin: 0 0 .75rem; padding: .65rem .85rem;
+      background: rgba(148, 163, 184, .08);
+      border-left: 3px solid var(--text2);
+      border-radius: 0 6px 6px 0;
+      font-size: .92rem; color: var(--text);
+    }
+    .control-body ol { margin: .25rem 0 0; padding-left: 1.5rem; }
+    .control-body li { font-size: .92rem; color: var(--text2); padding: .2rem 0; }
+    .control-body li::marker { color: var(--accent); font-weight: 700; }
+    .doc-link {
+      display: inline-block; margin-top: .85rem; font-size: .88rem;
+      padding: .35rem .75rem; background: rgba(59, 130, 246, .12);
+      border-radius: 6px;
+    }
+
+    .control-card.hidden { display: none; }
+    .toc li.hidden { display: none; }
+
+    footer {
+      text-align: center; padding: 2rem; color: var(--text2);
+      font-size: .8rem; border-top: 1px solid var(--surface2); margin-top: 3rem;
+    }
+    .control-card h3 {
+      display: flex; align-items: center; gap: .6rem;
+      flex-wrap: wrap;
+    }
+    .id-badge {
+      display: inline-block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .72rem; font-weight: 700;
+      letter-spacing: .03em;
+      padding: .2rem .5rem;
+      background: rgba(59, 130, 246, .18);
+      color: var(--accent);
+      border-radius: 999px;
+      border: 1px solid rgba(59, 130, 246, .35);
+      white-space: nowrap;
+    }
+    .control-name { flex: 1; min-width: 0; }
+    .steps-details {
+      margin-top: .25rem;
+      border-top: 1px dashed var(--surface2);
+      padding-top: .75rem;
+    }
+    .steps-details > summary {
+      cursor: pointer;
+      list-style: none;
+      font-size: .78rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text2);
+      font-weight: 700;
+      padding: .15rem 0;
+      user-select: none;
+    }
+    .steps-details > summary::-webkit-details-marker { display: none; }
+    .steps-details > summary::before {
+      content: '\25B6';
+      display: inline-block;
+      margin-right: .5rem;
+      font-size: .65rem;
+      transition: transform .15s ease;
+      color: var(--accent);
+    }
+    .steps-details[open] > summary::before { transform: rotate(90deg); }
+    .steps-details ol { margin-top: .6rem; }
+    .toc li code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .75rem;
+      color: var(--accent);
+      background: rgba(59, 130, 246, .12);
+      padding: .05rem .35rem;
+      border-radius: 4px;
+      margin-right: .25rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>ADO-QR Remediation Steps Reference</h1>
+      <p class="subtitle">Step-by-step remediation guidance for every control evaluated by the Azure DevOps Quick Review.</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="toolbar">
+      <input type="search" id="filter" placeholder="Filter controls (e.g. 'PAT', 'pipeline', 'guest')…" aria-label="Filter remediation steps">
+      <span class="count" id="count"></span>
+    </div>
+
+    <div class="toc">
+      <h2>Controls (<span id="toc-count">0</span>)</h2>
+      <ul id="toc-list"></ul>
+    </div>
+
+    <section id="controls">
+      <article class="control-card" id="enterprise-access-to-projects" data-name="Enterprise Access to Projects" data-id="ACCESS-01">
+        <h3><span class="id-badge">ACCESS-01</span><span class="control-name">Enterprise Access to Projects</span></h3>
+        <div class="control-body">
+          <p class="description">Disables the policy that automatically grants all enterprise members access to every project in the organization.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Find "Enterprise access to projects".</li>
+              <li>Set it to Off to restrict access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/change-application-access-policies" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="request-access-policy-disabled" data-name="Request Access Policy Disabled" data-id="ACCESS-02">
+        <h3><span class="id-badge">ACCESS-02</span><span class="control-name">Request Access Policy Disabled</span></h3>
+        <div class="control-body">
+          <p class="description">Prevents users from requesting access to the organization, eliminating an unmanaged onboarding channel.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Find "Request access".</li>
+              <li>Set it to Off to prevent users from requesting access to the organization.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/change-application-access-policies" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="invite-new-users-restricted" data-name="Invite New Users Restricted" data-id="ACCESS-03">
+        <h3><span class="id-badge">ACCESS-03</span><span class="control-name">Invite New Users Restricted</span></h3>
+        <div class="control-body">
+          <p class="description">Restricts user invitations to organization administrators only, preventing project or team admins from adding external users without governance.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Find "Allow team and project administrators to invite new users".</li>
+              <li>Set it to Off.</li>
+              <li>Only Organization Administrators will be able to add new users.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/change-application-access-policies" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="ip-allow-list" data-name="IP Allow List" data-id="ACCESS-04">
+        <h3><span class="id-badge">ACCESS-04</span><span class="control-name">IP Allow List</span></h3>
+        <div class="control-body">
+          <p class="description">Restricts Azure DevOps access to a defined set of trusted IP ranges via Microsoft Entra Conditional Access, preventing sign-ins from arbitrary networks.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Microsoft Entra ID P1 or P2 is required.</li>
+              <li>In the Microsoft Entra admin center, open Protection &gt; Conditional Access.</li>
+              <li>Create or update a policy targeting the Azure DevOps cloud app.</li>
+              <li>Under Conditions &gt; Locations, define your trusted IP ranges as a named location.</li>
+              <li>Set the policy to Block (or Grant with restrictions) for sign-ins outside those locations.</li>
+              <li>Enable the policy and validate from a non-trusted IP.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/manage-conditional-access" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="privileged-group-membership" data-name="Privileged Group Membership" data-id="ADMIN-01">
+        <h3><span class="id-badge">ADMIN-01</span><span class="control-name">Privileged Group Membership</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies that membership in Project Collection Administrators and other privileged groups is limited to users with a current, documented business need.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Permissions.</li>
+              <li>Open the Project Collection Administrators group (and any other privileged groups).</li>
+              <li>Review every member; remove anyone without a current, documented business need.</li>
+              <li>Prefer adding a Microsoft Entra group rather than individual users so membership is governed centrally.</li>
+              <li>Re-review on a recurring schedule (e.g. quarterly).</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/look-up-project-collection-administrators" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="pca-count-max-6" data-name="PCA Count (Max 6)" data-id="ADMIN-02">
+        <h3><span class="id-badge">ADMIN-02</span><span class="control-name">PCA Count (Max 6)</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies the Project Collection Administrators group has no more than 6 members, applying least-privilege to the most powerful role in the organization.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Permissions.</li>
+              <li>Select "Project Collection Administrators".</li>
+              <li>Review the Members tab.</li>
+              <li>Remove unnecessary members to reduce to 6 or fewer.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="pca-count-min-2" data-name="PCA Count (Min 2)" data-id="ADMIN-03">
+        <h3><span class="id-badge">ADMIN-03</span><span class="control-name">PCA Count (Min 2)</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies the Project Collection Administrators group has at least 2 members so there is a backup (break-glass) administrator.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Permissions.</li>
+              <li>Select "Project Collection Administrators".</li>
+              <li>Add at least one backup administrator to ensure continuity.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="service-accounts-in-privileged-roles" data-name="Service Accounts in Privileged Roles" data-id="ADMIN-04">
+        <h3><span class="id-badge">ADMIN-04</span><span class="control-name">Service Accounts in Privileged Roles</span></h3>
+        <div class="control-body">
+          <p class="description">Flags non-person / service accounts in PCA so they can be replaced with workload identities (managed identity, service principal, workload identity federation) scoped to least privilege.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Permissions &gt; Project Collection Administrators.</li>
+              <li>Identify any service / non-person accounts (e.g. build, deploy, automation identities).</li>
+              <li>Replace them with a workload identity (managed identity, service principal, or workload identity federation) scoped to the minimum required permissions.</li>
+              <li>Remove the service accounts from the privileged group.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/about-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="alt-accounts-for-admin-activity" data-name="ALT Accounts for Admin Activity" data-id="ADMIN-05">
+        <h3><span class="id-badge">ADMIN-05</span><span class="id-badge">PROJ-06</span><span class="control-name">ALT Accounts for Admin Activity</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms that privileged actions are performed from dedicated ALT / SC-ALT administrator accounts rather than from day-to-day user accounts.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Provision dedicated ALT / SC-ALT (administrator) accounts for every user who performs privileged actions.</li>
+              <li>Restrict day-to-day work (email, browsing, code commits) to the standard account.</li>
+              <li>Remove the standard user accounts from Project Collection Administrators and Project Administrators.</li>
+              <li>Add only the ALT accounts to privileged groups.</li>
+              <li>Enforce phishing-resistant MFA and Conditional Access on the ALT accounts.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/security/privileged-access-workstations/privileged-access-strategy" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="project-collection-service-accounts" data-name="Project Collection Service Accounts" data-id="ADMIN-06">
+        <h3><span class="id-badge">ADMIN-06</span><span class="control-name">Project Collection Service Accounts</span></h3>
+        <div class="control-body">
+          <p class="description">Reviews membership of the Project Collection Service Accounts group, which carries PCA-equivalent permissions and should be tightly controlled.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Permissions.</li>
+              <li>Select "Project Collection Service Accounts".</li>
+              <li>Review members — these have PCA-equivalent permissions.</li>
+              <li>Remove any unnecessary members or service accounts.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="security-patches-on-self-hosted-vms" data-name="Security Patches on Self-Hosted VMs" data-id="AP-01">
+        <h3><span class="id-badge">AP-01</span><span class="control-name">Security Patches on Self-Hosted VMs</span></h3>
+        <div class="control-body">
+          <p class="description">Self-hosted agent hosts must be enrolled in a patch-management program so OS and runtime CVEs are remediated on a defined cadence.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Identify the host machine(s) backing the self-hosted agent pool.</li>
+              <li>Enroll them in your patch-management solution (Azure Update Manager, WSUS, SCCM, Ansible, etc.).</li>
+              <li>Confirm the agent service restarts cleanly after patching.</li>
+              <li>Establish a maximum patch-lag SLA (e.g. critical CVEs within 7 days).</li>
+              <li>Document an exception process for anything that cannot be patched.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="hardened-os-image" data-name="Hardened OS Image" data-id="AP-02">
+        <h3><span class="id-badge">AP-02</span><span class="control-name">Hardened OS Image</span></h3>
+        <div class="control-body">
+          <p class="description">Self-hosted agent VMs should be based on a CIS-benchmarked or otherwise hardened image, with unused services disabled and EDR / host firewall in place.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Base the self-hosted agent VM on a hardened image (CIS-benchmarked, Azure Marketplace hardened image, or your golden image).</li>
+              <li>Disable unused services and inbound ports.</li>
+              <li>Apply a host firewall allow-list and EDR/antimalware.</li>
+              <li>Run periodic configuration scans (Microsoft Defender for Cloud, Azure Policy guest configuration, etc.) and remediate drift.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="auto-provisioning-disabled" data-name="Auto-Provisioning Disabled" data-id="AP-04">
+        <h3><span class="id-badge">AP-04</span><span class="control-name">Auto-Provisioning Disabled</span></h3>
+        <div class="control-body">
+          <p class="description">Disables automatic provisioning of agent pools into every project so pools are intentionally granted only to projects that need them.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Pipelines &gt; Agent pools.</li>
+              <li>Click Settings.</li>
+              <li>Turn Off "Auto-provision this pool in all projects".</li>
+              <li>Manually provision pools only in projects that need them.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/pools-queues" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="not-accessible-to-all-yaml-pipelines" data-name="Not Accessible to All YAML Pipelines" data-id="AP-05">
+        <h3><span class="id-badge">AP-05</span><span class="id-badge">ENV-01</span><span class="id-badge">REPO-02</span><span class="id-badge">SC-08</span><span class="id-badge">SF-01</span><span class="control-name">Not Accessible to All YAML Pipelines</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms protected resources (service connections, environments, variable groups, secure files, agent pools) are not granted blanket access to every YAML pipeline.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings.</li>
+              <li>Open the relevant resource (Service connections / Agent pools / Environments / Secure files / Variable groups).</li>
+              <li>Select the resource, click the three dots button, then Security.</li>
+              <li>Under Pipeline permissions, click "Restrict Permission".</li>
+              <li>Add only the specific YAML pipelines that need access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/resources" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="auto-update-enabled" data-name="Auto-Update Enabled" data-id="AP-07">
+        <h3><span class="id-badge">AP-07</span><span class="control-name">Auto-Update Enabled</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms self-hosted agents are configured to auto-update so security patches and protocol changes are picked up promptly.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Pipelines &gt; Agent pools.</li>
+              <li>Select the agent pool.</li>
+              <li>Click Settings.</li>
+              <li>Turn On "Allow agents in this pool to automatically update".</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents#agent-version-and-upgrades" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="no-plain-text-secrets-in-capabilities" data-name="No Plain Text Secrets in Capabilities" data-id="AP-08">
+        <h3><span class="id-badge">AP-08</span><span class="control-name">No Plain Text Secrets in Capabilities</span></h3>
+        <div class="control-body">
+          <p class="description">Detects user-defined agent capability values that look like secrets (tokens, passwords) and would be exposed in plain text to every job that runs on the agent.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Agent pools.</li>
+              <li>Select the pool, then click the Agents tab.</li>
+              <li>Select an agent and click Capabilities.</li>
+              <li>Review user-defined capabilities for any values that look like secrets.</li>
+              <li>Remove or replace with variable references.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents#capabilities" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="audit-log-backup" data-name="Audit Log Backup" data-id="AUDIT-01">
+        <h3><span class="id-badge">AUDIT-01</span><span class="control-name">Audit Log Backup</span></h3>
+        <div class="control-body">
+          <p class="description">Azure DevOps retains audit events for only 90 days. Streaming them to external storage (Log Analytics, Splunk, Event Grid) preserves the evidence required for incident response and compliance.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Auditing &gt; Streams.</li>
+              <li>Configure an audit stream to an external destination (Azure Event Grid, Azure Monitor / Log Analytics, Splunk, or a generic webhook).</li>
+              <li>Confirm events are arriving at the destination.</li>
+              <li>Retain the exported audit data per your compliance retention requirement (Azure DevOps only retains audit events for 90 days).</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/audit/auditing-streaming" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="audit-streaming" data-name="Audit Streaming" data-id="AUDIT-02">
+        <h3><span class="id-badge">AUDIT-02</span><span class="control-name">Audit Streaming</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms audit log streaming to a SIEM (Splunk, Azure Monitor, Event Grid, etc.) is configured so security events are retained beyond the 90-day in-product window.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Auditing.</li>
+              <li>Click the Streams tab.</li>
+              <li>Click New Stream to set up audit log streaming.</li>
+              <li>Select your SIEM target (Splunk, Azure Monitor, Azure Event Grid, etc.).</li>
+              <li>Configure and enable the stream.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/audit/auditing-streaming" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="alerts-configuration" data-name="Alerts Configuration" data-id="AUDIT-03">
+        <h3><span class="id-badge">AUDIT-03</span><span class="control-name">Alerts Configuration</span></h3>
+        <div class="control-body">
+          <p class="description">Alert rules should fire on sensitive audit events (PCA changes, policy changes, new service connections, broad-scope PAT creation, extension installs) and route to an on-call channel.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Stream audit events to Log Analytics (Azure Monitor) via an audit stream.</li>
+              <li>Define KQL alert rules for sensitive actions: PCA group changes, policy changes, new service connections, extension installs, PAT creation with broad scopes, etc.</li>
+              <li>Route alerts to an on-call channel (Teams, PagerDuty, email).</li>
+              <li>Tune thresholds quarterly to control noise.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/audit/auditing-events" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="aad-authentication" data-name="AAD Authentication" data-id="AUTH-01">
+        <h3><span class="id-badge">AUTH-01</span><span class="control-name">AAD Authentication</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms the organization is backed by Microsoft Entra ID (Azure AD) so user identities and policies are centrally governed and lifecycle-managed.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Azure Active Directory.</li>
+              <li>Click Connect directory.</li>
+              <li>Select your Azure AD tenant and complete the connection.</li>
+              <li>Verify all users are AAD-backed.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/connect-organization-to-azure-ad" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="external-user-access-disabled" data-name="External User Access Disabled" data-id="AUTH-02">
+        <h3><span class="id-badge">AUTH-02</span><span class="control-name">External User Access Disabled</span></h3>
+        <div class="control-body">
+          <p class="description">Detects users from external (non-AAD) identity providers, such as personal Microsoft accounts, that may not be subject to organizational identity controls.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Users.</li>
+              <li>Filter for users with non-AAD origins (personal accounts).</li>
+              <li>Review each external user for business justification.</li>
+              <li>Remove unnecessary external users by clicking the three dots &gt; Remove.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/add-external-user" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="public-projects-disabled" data-name="Public Projects Disabled" data-id="AUTH-03">
+        <h3><span class="id-badge">AUTH-03</span><span class="control-name">Public Projects Disabled</span></h3>
+        <div class="control-body">
+          <p class="description">Detects projects with Public visibility, which makes work items and source code accessible without authentication.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Overview.</li>
+              <li>Under Visibility, change from Public to Private.</li>
+              <li>Click Save.</li>
+              <li>Repeat for each public project.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/projects/make-project-public" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="guest-user-justification" data-name="Guest User Justification" data-id="AUTH-04">
+        <h3><span class="id-badge">AUTH-04</span><span class="control-name">Guest User Justification</span></h3>
+        <div class="control-body">
+          <p class="description">Flags Microsoft Entra B2B guest users (identified by #EXT# in the email) for review to confirm each one has a documented business justification.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Users.</li>
+              <li>Filter for guest users (look for #EXT# in email).</li>
+              <li>Review each guest user for documented business justification.</li>
+              <li>Remove unnecessary guest users via the three dots &gt; Remove.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="conditional-access-policy" data-name="Conditional Access Policy" data-id="AUTH-05">
+        <h3><span class="id-badge">AUTH-05</span><span class="control-name">Conditional Access Policy</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms that Microsoft Entra Conditional Access policy validation is enabled so MFA, location, and device controls are enforced on Azure DevOps sign-ins.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Enable "Enable Azure Active Directory (Azure AD) Conditional Access Policy Validation".</li>
+              <li>Configure Conditional Access policies in Azure AD (requires Azure AD P1/P2).</li>
+              <li>Test that policies are enforced for ADO access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/change-application-access-policies" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="anonymous-badge-api" data-name="Anonymous Badge API" data-id="BADGE-01">
+        <h3><span class="id-badge">BADGE-01</span><span class="control-name">Anonymous Badge API</span></h3>
+        <div class="control-body">
+          <p class="description">Disables the organization-wide setting that allows pipeline status badges to be retrieved without authentication, hiding pipeline names and run outcomes from anonymous users.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings (or Project Settings).</li>
+              <li>Open Settings under Pipelines.</li>
+              <li>Turn On the setting "Disable anonymous access to badges".</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/create-first-pipeline#add-a-status-badge-to-your-repository" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="no-plain-text-secrets" data-name="No Plain Text Secrets" data-id="BUILD-01">
+        <h3><span class="id-badge">BUILD-01</span><span class="id-badge">REL-01</span><span class="id-badge">VG-03</span><span class="control-name">No Plain Text Secrets</span></h3>
+        <div class="control-body">
+          <p class="description">Detects sensitive values (passwords, keys, tokens, connection strings) stored as regular pipeline variables instead of secret variables or Key Vault references.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open the pipeline definition (build or release).</li>
+              <li>Review all variables for sensitive values (passwords, keys, tokens, connection strings).</li>
+              <li>For each secret, click the lock icon to mark it as a secret variable.</li>
+              <li>Consider moving secrets to Azure Key Vault and linking via variable groups.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/process/set-secret-variables" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="static-code-analysis" data-name="Static Code Analysis" data-id="BUILD-02">
+        <h3><span class="id-badge">BUILD-02</span><span class="control-name">Static Code Analysis</span></h3>
+        <div class="control-body">
+          <p class="description">Every build pipeline should run a SAST tool (CodeQL / GHAzDO, SonarQube, Checkmarx, Semgrep, etc.) and fail on new high/critical findings.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Decide on the SAST tool(s) (CodeQL via GHAzDO, SonarQube/SonarCloud, Checkmarx, Semgrep, etc.).</li>
+              <li>Add the analysis task(s) to each build pipeline (or a shared template).</li>
+              <li>Fail the build on new high/critical findings; track existing findings as work items.</li>
+              <li>For Azure Repos, enable GitHub Advanced Security for Azure DevOps to get code scanning and push protection out of the box.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/security/configure-github-advanced-security-features" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="secure-files-for-secrets" data-name="Secure Files for Secrets" data-id="BUILD-03">
+        <h3><span class="id-badge">BUILD-03</span><span class="control-name">Secure Files for Secrets</span></h3>
+        <div class="control-body">
+          <p class="description">Certificates, keystores and signing keys belong in the pipeline Secure Files library with pipeline-scoped permissions, not in the repo or in plain pipeline variables.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Library &gt; Secure files.</li>
+              <li>Upload certificates, keystores, signing keys, etc. as secure files (rather than committing them to the repo).</li>
+              <li>Restrict pipeline permissions on each secure file to only the pipelines that need it.</li>
+              <li>In pipelines, use the DownloadSecureFile@1 task to consume them.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/secure-files" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="inactive-build-pipelines" data-name="Inactive Build Pipelines" data-id="BUILD-04">
+        <h3><span class="id-badge">BUILD-04</span><span class="control-name">Inactive Build Pipelines</span></h3>
+        <div class="control-body">
+          <p class="description">Identifies build pipelines that have not run in 90+ days and should be removed or archived to reduce maintenance and attack surface.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines.</li>
+              <li>Identify pipelines that have not run in 90+ days.</li>
+              <li>Delete or disable unused pipelines via the three dots menu.</li>
+              <li>Document any pipelines kept for archival purposes.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/get-started/what-is-azure-pipelines" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="settable-variables-at-queue-time" data-name="Settable Variables at Queue Time" data-id="BUILD-06">
+        <h3><span class="id-badge">BUILD-06</span><span class="id-badge">PIPELINE-04</span><span class="control-name">Settable Variables at Queue Time</span></h3>
+        <div class="control-body">
+          <p class="description">Prevents pipeline variables from being overridden at queue time unless explicitly allowed, reducing the risk of parameter-injection attacks via run parameters.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings (or Project Settings).</li>
+              <li>Open Settings under Pipelines.</li>
+              <li>Turn On the setting "Limit variables that can be set at queue time".</li>
+              <li>For each pipeline, mark only necessary variables as "Settable at queue time".</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/inputs" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="settable-url-variables" data-name="Settable URL Variables" data-id="BUILD-07">
+        <h3><span class="id-badge">BUILD-07</span><span class="control-name">Settable URL Variables</span></h3>
+        <div class="control-body">
+          <p class="description">Flags pipeline variables that accept URL values and are marked settable-at-queue-time — a common SSRF and exfiltration vector.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open the build pipeline definition.</li>
+              <li>Review variables that accept URL values.</li>
+              <li>Remove the "Settable at queue time" flag from URL-type variables.</li>
+              <li>Hardcode trusted URLs or use service connections instead.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/inputs" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="external-repository-review" data-name="External Repository Review" data-id="BUILD-08">
+        <h3><span class="id-badge">BUILD-08</span><span class="control-name">External Repository Review</span></h3>
+        <div class="control-body">
+          <p class="description">Flags pipelines that build from external repositories (GitHub, Bitbucket, etc.) so the connections can be reviewed for least-privilege.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open the build pipeline definition.</li>
+              <li>Check the repository source — if it points to an external repo (GitHub, Bitbucket, etc.).</li>
+              <li>Review and document the business justification for using external repositories.</li>
+              <li>Ensure the external repo connection uses least-privilege authentication.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/repos" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="pipeline-authorization-scope" data-name="Pipeline Authorization Scope" data-id="BUILD-11">
+        <h3><span class="id-badge">BUILD-11</span><span class="control-name">Pipeline Authorization Scope</span></h3>
+        <div class="control-body">
+          <p class="description">Per-pipeline check ensuring the job authorization scope is set to "current project" rather than the whole project collection.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open the build pipeline definition.</li>
+              <li>Click Settings (three dots &gt; Settings).</li>
+              <li>Under "Build job authorization scope", select "Current project".</li>
+              <li>Save the pipeline.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/secure-access-to-repos" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="fork-builds-and-secrets" data-name="Fork Builds and Secrets" data-id="BUILD-13">
+        <h3><span class="id-badge">BUILD-13</span><span class="control-name">Fork Builds and Secrets</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms PR validation does not expose pipeline secrets to forked pull-request builds — a common supply-chain attack vector.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open the build pipeline definition.</li>
+              <li>Go to Triggers &gt; Pull request validation.</li>
+              <li>Uncheck "Make secrets available to builds of forks".</li>
+              <li>Ensure "Build fork pull requests" is carefully controlled.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/repos#contributions-from-forks" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="github-copilot-extension-review" data-name="GitHub Copilot Extension Review" data-id="COPILOT-01">
+        <h3><span class="id-badge">COPILOT-01</span><span class="control-name">GitHub Copilot Extension Review</span></h3>
+        <div class="control-body">
+          <p class="description">Any Copilot-related extension must be from an approved publisher (e.g. GitHub) and aligned with the organization's AI / data-handling policy.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Extensions &gt; Installed.</li>
+              <li>Confirm any Copilot-related extensions are published by GitHub (or another explicitly approved publisher).</li>
+              <li>Uninstall unapproved or look-alike extensions.</li>
+              <li>Document an approval workflow for AI / Copilot-style extensions and align with your AI / data-handling policy.</li>
+              <li>Review extension permissions and the data they can access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/marketplace/install-extension" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="production-approvals" data-name="Production Approvals" data-id="ENV-03">
+        <h3><span class="id-badge">ENV-03</span><span class="control-name">Production Approvals</span></h3>
+        <div class="control-body">
+          <p class="description">Ensures multi-stage YAML environments labelled production have an approvals check configured so deployments cannot proceed unattended.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Environments.</li>
+              <li>Select the production environment.</li>
+              <li>Click the three dots &gt; Approvals and checks.</li>
+              <li>Add an Approvals check with at least one approver.</li>
+              <li>Consider also adding a Branch control check to restrict to main branch.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="extension-review" data-name="Extension Review" data-id="EXT-01">
+        <h3><span class="id-badge">EXT-01</span><span class="control-name">Extension Review</span></h3>
+        <div class="control-body">
+          <p class="description">Reviews installed Marketplace extensions to confirm each comes from a trusted or verified publisher and is still needed.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Extensions.</li>
+              <li>Review each installed extension and its publisher.</li>
+              <li>Verify the publisher is trusted (Microsoft or verified publisher).</li>
+              <li>Remove any extensions from untrusted or unknown publishers.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/marketplace/install-extension" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="shared-extension-scrutiny" data-name="Shared Extension Scrutiny" data-id="EXT-02">
+        <h3><span class="id-badge">EXT-02</span><span class="control-name">Shared Extension Scrutiny</span></h3>
+        <div class="control-body">
+          <p class="description">All shared and installed non-built-in extensions should come from trusted publishers and be subject to a documented intake/approval workflow.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Extensions &gt; Shared (and Installed).</li>
+              <li>For each non-built-in extension, verify the publisher is trusted and the extension is still actively maintained.</li>
+              <li>Remove unused or unverified extensions.</li>
+              <li>Establish an approved-publisher allow-list and an intake review for new extension requests.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/marketplace/install-extension" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="extension-manager-review" data-name="Extension Manager Review" data-id="EXT-03">
+        <h3><span class="id-badge">EXT-03</span><span class="control-name">Extension Manager Review</span></h3>
+        <div class="control-body">
+          <p class="description">The Manage Extensions permission should be limited to a small, trusted group (typically Project Collection Administrators).</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Extensions &gt; Permissions.</li>
+              <li>Review who holds the Manage Extensions permission.</li>
+              <li>Restrict the Manager role to a small, trusted group (e.g. Project Collection Administrators).</li>
+              <li>Remove any individual users that no longer need the permission.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/marketplace/how-to/grant-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="requested-extensions-review" data-name="Requested Extensions Review" data-id="EXT-04">
+        <h3><span class="id-badge">EXT-04</span><span class="control-name">Requested Extensions Review</span></h3>
+        <div class="control-body">
+          <p class="description">Reviews pending Marketplace extension install requests so unknown or risky extensions are not approved by default.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Extensions.</li>
+              <li>Click the Requested tab.</li>
+              <li>Review each pending request.</li>
+              <li>Approve trusted extensions and reject unknown ones.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/marketplace/request-extensions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="feed-permissions-for-broad-groups" data-name="Feed Permissions for Broad Groups" data-id="FEED-01">
+        <h3><span class="id-badge">FEED-01</span><span class="control-name">Feed Permissions for Broad Groups</span></h3>
+        <div class="control-body">
+          <p class="description">Ensures broad groups (Contributors, Readers, Project Valid Users) only have Reader access on Azure Artifacts feeds so packages cannot be modified by anyone.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Artifacts &gt; select the feed.</li>
+              <li>Click the gear icon (Feed settings).</li>
+              <li>Click Permissions.</li>
+              <li>For broad groups (Contributors, Readers, Valid Users), set role to Reader.</li>
+              <li>Remove any unnecessary admin/write access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/artifacts/feeds/feed-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="no-broad-upload-permissions" data-name="No Broad Upload Permissions" data-id="FEED-01">
+        <h3><span class="id-badge">FEED-01</span><span class="control-name">No Broad Upload Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies that package upload (Contributor/Collaborator) permissions on feeds are restricted to specific service accounts or build identities.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Artifacts &gt; select the feed.</li>
+              <li>Click the gear icon (Feed settings).</li>
+              <li>Click Permissions.</li>
+              <li>Restrict upload (Contributor/Collaborator) roles to specific service accounts or build identities.</li>
+              <li>Set broad groups to Reader only.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/artifacts/feeds/feed-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="feed-creation-permissions" data-name="Feed Creation Permissions" data-id="FEED-02">
+        <h3><span class="id-badge">FEED-02</span><span class="control-name">Feed Creation Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">Restricts who can create Azure Artifacts feeds to a small, named group so feed sprawl and unmanaged package sources are avoided.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Artifacts &gt; Permissions (or the Artifacts hub at organization scope).</li>
+              <li>Review who has the "Create new feed" permission.</li>
+              <li>Restrict creation to a small, named group (e.g. Feed Administrators) rather than Project Collection Valid Users.</li>
+              <li>Document an intake process for new feeds.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/artifacts/feeds/feed-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="external-package-protection" data-name="External Package Protection" data-id="FEED-03">
+        <h3><span class="id-badge">FEED-03</span><span class="control-name">External Package Protection</span></h3>
+        <div class="control-body">
+          <p class="description">Reviews Artifacts upstream sources to limit pulling from public registries and protect against dependency-confusion attacks.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Artifacts &gt; select the feed.</li>
+              <li>Click the gear icon (Feed settings).</li>
+              <li>Review Upstream sources.</li>
+              <li>Disable unnecessary upstream sources.</li>
+              <li>Enable "Override packages from public sources" protection if available.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/artifacts/concepts/upstream-sources" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="third-party-oauth-disabled" data-name="Third-Party OAuth Disabled" data-id="OAUTH-01">
+        <h3><span class="id-badge">OAUTH-01</span><span class="control-name">Third-Party OAuth Disabled</span></h3>
+        <div class="control-body">
+          <p class="description">Disables third-party application access via OAuth so unsanctioned apps cannot obtain delegated access to Azure DevOps on a user's behalf.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Find "Third-party application access via OAuth".</li>
+              <li>Set it to Off.</li>
+              <li>Review any existing OAuth applications and revoke unnecessary access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/change-application-access-policies" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="ssh-access-disabled" data-name="SSH Access Disabled" data-id="OAUTH-02">
+        <h3><span class="id-badge">OAUTH-02</span><span class="control-name">SSH Access Disabled</span></h3>
+        <div class="control-body">
+          <p class="description">Disables SSH authentication for Git so users authenticate with managed credentials over HTTPS rather than long-lived SSH keys.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Find "SSH authentication".</li>
+              <li>Set it to Off.</li>
+              <li>Users should use HTTPS with credential managers instead.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/change-application-access-policies" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="minimum-required-permissions" data-name="Minimum Required Permissions" data-id="PAT-01">
+        <h3><span class="id-badge">PAT-01</span><span class="control-name">Minimum Required Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">Flags individual PATs that hold all-scopes / full-access permissions instead of the minimum scopes needed for the task.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to User Settings &gt; Personal access tokens.</li>
+              <li>Select the PAT with full access.</li>
+              <li>Click Edit / Regenerate.</li>
+              <li>Select only the specific scopes needed (e.g., Code: Read, Build: Read &amp; execute).</li>
+              <li>Save with the restricted scope.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="short-validity-period" data-name="Short Validity Period" data-id="PAT-02">
+        <h3><span class="id-badge">PAT-02</span><span class="control-name">Short Validity Period</span></h3>
+        <div class="control-body">
+          <p class="description">Flags Personal Access Tokens with expirations longer than the recommended 90 days.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to User Settings &gt; Personal access tokens.</li>
+              <li>Select the long-lived PAT.</li>
+              <li>Click Regenerate.</li>
+              <li>Set the expiration to 90 days or less.</li>
+              <li>Update any automation using the old PAT value.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="near-expiry-pat-renewal" data-name="Near-Expiry PAT Renewal" data-id="PAT-03">
+        <h3><span class="id-badge">PAT-03</span><span class="control-name">Near-Expiry PAT Renewal</span></h3>
+        <div class="control-body">
+          <p class="description">Identifies PATs that will expire within 7 days so they can be rotated proactively before automation breaks.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to User Settings &gt; Personal access tokens.</li>
+              <li>Identify the PAT expiring within 7 days.</li>
+              <li>Click Regenerate to extend with appropriate scope and duration.</li>
+              <li>Update any automation or scripts using the PAT.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="no-critical-permission-pats" data-name="No Critical Permission PATs" data-id="PAT-06">
+        <h3><span class="id-badge">PAT-06</span><span class="control-name">No Critical Permission PATs</span></h3>
+        <div class="control-body">
+          <p class="description">Flags PATs granted highly sensitive scopes (security_manage, entitlements, project_manage) that should be performed by a service principal or managed identity instead.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to User Settings &gt; Personal access tokens.</li>
+              <li>Identify PATs with critical scopes (security_manage, entitlements, project_manage).</li>
+              <li>Delete the PAT and recreate with minimal required scopes.</li>
+              <li>For automation, use a Service Principal or Managed Identity instead.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="maximum-pat-lifetime-policy" data-name="Maximum PAT Lifetime Policy" data-id="PATPOL-01">
+        <h3><span class="id-badge">PATPOL-01</span><span class="control-name">Maximum PAT Lifetime Policy</span></h3>
+        <div class="control-body">
+          <p class="description">Enforces a maximum lifespan on Personal Access Tokens at the organization level, limiting the value of a leaked token.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Find "Enforce maximum personal access token lifespan".</li>
+              <li>Set it to On and configure the maximum lifetime (e.g., 90 days).</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/manage-pats-with-policies-for-administrators" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="restrict-pat-scope" data-name="Restrict PAT Scope" data-id="PATPOL-02">
+        <h3><span class="id-badge">PATPOL-02</span><span class="control-name">Restrict PAT Scope</span></h3>
+        <div class="control-body">
+          <p class="description">Requires Personal Access Tokens to be created with specific scopes rather than full access, enforcing least privilege.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Find "Restrict scope of personal access tokens".</li>
+              <li>Set it to On to enforce scoped PATs.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/manage-pats-with-policies-for-administrators" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="restrict-global-pats" data-name="Restrict Global PATs" data-id="PATPOL-03">
+        <h3><span class="id-badge">PATPOL-03</span><span class="control-name">Restrict Global PATs</span></h3>
+        <div class="control-body">
+          <p class="description">Blocks creation of full-scope (global) Personal Access Tokens at the organization level so tokens must target specific scopes.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Policies.</li>
+              <li>Find "Restrict global personal access tokens".</li>
+              <li>Set it to On to block full-access PATs.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/manage-pats-with-policies-for-administrators" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="repository-creation-permission" data-name="Repository Creation Permission" data-id="PERM-09">
+        <h3><span class="id-badge">PERM-09</span><span class="control-name">Repository Creation Permission</span></h3>
+        <div class="control-body">
+          <p class="description">The "Create repository" permission should be granted only to trusted groups (e.g. Project Administrators) so repos are created through a governed intake process.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Repositories &gt; Security.</li>
+              <li>Locate the "Create repository" permission.</li>
+              <li>Set Allow only for trusted groups (e.g. Project Administrators); set Not set or Deny for broad groups like Contributors.</li>
+              <li>Document an intake process for new repos.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/git/set-git-repository-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="pipeline-auth-scope-non-release" data-name="Pipeline Auth Scope (Non-Release)" data-id="PIPELINE-01">
+        <h3><span class="id-badge">PIPELINE-01</span><span class="control-name">Pipeline Auth Scope (Non-Release)</span></h3>
+        <div class="control-body">
+          <p class="description">Restricts the build pipeline job authorization token to resources within the current project, preventing lateral movement across the organization if a pipeline is compromised.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings (or Project Settings).</li>
+              <li>Open Settings under Pipelines.</li>
+              <li>Turn On the setting "Limit job authorization scope to current project for non-release pipelines".</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/secure-access-to-repos" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="pipeline-auth-scope-release" data-name="Pipeline Auth Scope (Release)" data-id="PIPELINE-02">
+        <h3><span class="id-badge">PIPELINE-02</span><span class="control-name">Pipeline Auth Scope (Release)</span></h3>
+        <div class="control-body">
+          <p class="description">Restricts the classic release pipeline job authorization token to the current project, containing the blast radius of a compromised release.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings (or Project Settings).</li>
+              <li>Open Settings under Pipelines.</li>
+              <li>Turn On the setting "Limit job authorization scope to current project for release pipelines".</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/secure-access-to-repos" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="pipeline-repository-scope" data-name="Pipeline Repository Scope" data-id="PIPELINE-03">
+        <h3><span class="id-badge">PIPELINE-03</span><span class="control-name">Pipeline Repository Scope</span></h3>
+        <div class="control-body">
+          <p class="description">Requires YAML pipelines to explicitly declare the repositories they need, blocking implicit access to other repos in the organization.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings (or Project Settings).</li>
+              <li>Open Settings under Pipelines.</li>
+              <li>Turn On the setting "Protect access to repositories in YAML pipelines".</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/secure-access-to-repos" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="auto-injected-tasks" data-name="Auto-Injected Tasks" data-id="PIPELINE-05">
+        <h3><span class="id-badge">PIPELINE-05</span><span class="control-name">Auto-Injected Tasks</span></h3>
+        <div class="control-body">
+          <p class="description">Pipeline decorators and other auto-injected tasks run in every pipeline. They must come from a trusted source, be pinned to a known version, and be required by policy.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Pipelines (and any extensions that auto-inject tasks).</li>
+              <li>List every task that is auto-injected into pipelines (decorators, pipeline policies, agent pre/post-jobs).</li>
+              <li>For each, confirm the task is published by a trusted source and required by policy.</li>
+              <li>Remove unused or unverified decorators.</li>
+              <li>Pin tasks to a specific version where the marketplace supports it.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/overview" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="project-visibility" data-name="Project Visibility" data-id="PROJ-01">
+        <h3><span class="id-badge">PROJ-01</span><span class="control-name">Project Visibility</span></h3>
+        <div class="control-body">
+          <p class="description">Ensures the project visibility is set to Private so source code, work items, and pipeline data are not exposed to anonymous internet users.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings.</li>
+              <li>Click Overview.</li>
+              <li>Under Visibility, select Private.</li>
+              <li>Save.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/projects/make-project-public" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="project-admin-group-membership" data-name="Project Admin Group Membership" data-id="PROJ-02">
+        <h3><span class="id-badge">PROJ-02</span><span class="control-name">Project Admin Group Membership</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies that Project Administrators membership is limited to users with a current, documented business need, ideally via a Microsoft Entra group.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Permissions &gt; Project Administrators.</li>
+              <li>Review every member; remove anyone without a documented business need.</li>
+              <li>Prefer adding a Microsoft Entra group rather than individual users.</li>
+              <li>Re-review on a recurring schedule (e.g. quarterly).</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/change-project-level-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="project-admin-count-max-6" data-name="Project Admin Count (Max 6)" data-id="PROJ-03">
+        <h3><span class="id-badge">PROJ-03</span><span class="control-name">Project Admin Count (Max 6)</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies each Project Administrators group has 6 or fewer members, following least-privilege for project-level admin rights.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Permissions.</li>
+              <li>Select "Project Administrators".</li>
+              <li>Review the Members tab.</li>
+              <li>Remove unnecessary members to reduce to 6 or fewer.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="project-admin-count-min-2" data-name="Project Admin Count (Min 2)" data-id="PROJ-04">
+        <h3><span class="id-badge">PROJ-04</span><span class="control-name">Project Admin Count (Min 2)</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies each Project Administrators group has at least 2 members so the project has a backup administrator.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Permissions.</li>
+              <li>Select "Project Administrators".</li>
+              <li>Add at least one backup administrator.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="build-admin-count-max-100" data-name="Build Admin Count (Max 100)" data-id="PROJ-05">
+        <h3><span class="id-badge">PROJ-05</span><span class="control-name">Build Admin Count (Max 100)</span></h3>
+        <div class="control-body">
+          <p class="description">Reviews the size of the Build Administrators group to ensure it has not grown unboundedly through historical assignments.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Permissions.</li>
+              <li>Select "Build Administrators".</li>
+              <li>Review and remove unnecessary members to keep count reasonable.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="guest-users-in-admin-roles" data-name="Guest Users in Admin Roles" data-id="PROJ-07">
+        <h3><span class="id-badge">PROJ-07</span><span class="id-badge">USER-04</span><span class="control-name">Guest Users in Admin Roles</span></h3>
+        <div class="control-body">
+          <p class="description">Detects guest (external) identities assigned to administrator groups — a high-risk pattern that should generally be avoided.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Permissions (or Project Settings &gt; Permissions).</li>
+              <li>Select the Administrators group.</li>
+              <li>Identify any guest users (look for #EXT# in email).</li>
+              <li>Remove guest users from administrator groups immediately.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="inactive-users-in-admin-roles" data-name="Inactive Users in Admin Roles" data-id="PROJ-08">
+        <h3><span class="id-badge">PROJ-08</span><span class="id-badge">USER-05</span><span class="control-name">Inactive Users in Admin Roles</span></h3>
+        <div class="control-body">
+          <p class="description">Flags members of administrator groups who have not signed in recently — privileged accounts must be actively used and monitored.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Permissions (or Project Settings &gt; Permissions).</li>
+              <li>Select the Administrators group.</li>
+              <li>Review the Members tab for inactive users.</li>
+              <li>Remove inactive members who have not accessed the org in 90+ days.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="artifact-evaluation" data-name="Artifact Evaluation" data-id="PROJ-13">
+        <h3><span class="id-badge">PROJ-13</span><span class="control-name">Artifact Evaluation</span></h3>
+        <div class="control-body">
+          <p class="description">Deployments to production environments should pass an artifact-evaluation check (signed artifact, expected build pipeline, etc.) before the gate releases.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Environments &gt; [environment] &gt; Approvals and checks.</li>
+              <li>Add an "Evaluate artifact" check.</li>
+              <li>Define the policy (e.g. require a signed artifact, require a specific build pipeline as the source).</li>
+              <li>Test by attempting a deployment from a non-compliant artifact and confirm it is blocked.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="credential-scanner" data-name="Credential Scanner" data-id="PROJ-14">
+        <h3><span class="id-badge">PROJ-14</span><span class="control-name">Credential Scanner</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms repositories have secret scanning or credential scanning (GHAzDO push protection, CredScan, CodeQL) configured to catch leaked secrets before they are committed.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Repos &gt; Repositories.</li>
+              <li>Select a repository.</li>
+              <li>Click Settings tab.</li>
+              <li>Enable "Push protection" under GitHub Advanced Security for Azure DevOps (GHAzDO).</li>
+              <li>Alternatively, add a credential scanning task (CredScan, CodeQL) to your build pipeline.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/security/github-advanced-security-secret-scanning" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="commit-author-email-validation" data-name="Commit Author Email Validation" data-id="PROJ-15">
+        <h3><span class="id-badge">PROJ-15</span><span class="control-name">Commit Author Email Validation</span></h3>
+        <div class="control-body">
+          <p class="description">Enforces a repository policy that requires commits to come from an approved author email domain, blocking spoofed identities in Git history.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Repos &gt; Repositories.</li>
+              <li>Select a repository (or All Repositories for project-wide).</li>
+              <li>Click the Policies tab.</li>
+              <li>Under Repository Policies, turn On "Commit author email validation".</li>
+              <li>Configure the author email pattern (e.g., *@yourcompany.com).</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/git/repository-settings#commit-author-email-validation-policy" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="inactive-projects" data-name="Inactive Projects" data-id="PROJ-16">
+        <h3><span class="id-badge">PROJ-16</span><span class="control-name">Inactive Projects</span></h3>
+        <div class="control-body">
+          <p class="description">Identifies projects with no recent builds or commits (180+ days) that may no longer be needed.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Projects.</li>
+              <li>Identify projects with no recent builds or commits (180+ days).</li>
+              <li>Contact project owners to confirm the project is still needed.</li>
+              <li>Disable or delete inactive projects.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/projects/delete-project" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="badge-api-access" data-name="Badge API Access" data-id="PROJ-17">
+        <h3><span class="id-badge">PROJ-17</span><span class="control-name">Badge API Access</span></h3>
+        <div class="control-body">
+          <p class="description">Project-level check that anonymous access to pipeline status badges is disabled.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings.</li>
+              <li>Open Settings under Pipelines.</li>
+              <li>Turn On the setting "Disable anonymous access to badges".</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/create-first-pipeline#add-a-status-badge-to-your-repository" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="inactive-release-pipelines" data-name="Inactive Release Pipelines" data-id="REL-02">
+        <h3><span class="id-badge">REL-02</span><span class="control-name">Inactive Release Pipelines</span></h3>
+        <div class="control-body">
+          <p class="description">Identifies classic release pipelines that have not run in 90+ days and may be candidates for retirement.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Releases.</li>
+              <li>Identify release pipelines that have not run in 90+ days.</li>
+              <li>Delete or disable unused pipelines via the three dots menu.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/release" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="pre-deployment-approvals" data-name="Pre-Deployment Approvals" data-id="REL-04">
+        <h3><span class="id-badge">REL-04</span><span class="control-name">Pre-Deployment Approvals</span></h3>
+        <div class="control-body">
+          <p class="description">Ensures classic release pipelines require human approval before deploying to production-like stages, providing a control gate against unauthorized changes.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Releases.</li>
+              <li>Edit the release pipeline.</li>
+              <li>Click on the pre-deployment conditions icon (lightning bolt) on the production stage.</li>
+              <li>Enable Pre-deployment approvals.</li>
+              <li>Add at least one approver who is not the release creator.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/release/approvals/approvals" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="production-from-main-branch-only" data-name="Production from Main Branch Only" data-id="REL-06">
+        <h3><span class="id-badge">REL-06</span><span class="control-name">Production from Main Branch Only</span></h3>
+        <div class="control-body">
+          <p class="description">Production environments should be guarded by a Branch control check that allows deployments only from the protected main branch.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Environments &gt; [production environment] &gt; Approvals and checks.</li>
+              <li>Add a "Branch control" check.</li>
+              <li>Set Allowed branches to refs/heads/main (or your protected production branch).</li>
+              <li>Enable "Ensure protection of the branch" so the check fails if branch policies are not in place.</li>
+              <li>Validate that a deployment from a feature branch is blocked.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="settable-variables-at-release-time" data-name="Settable Variables at Release Time" data-id="REL-08">
+        <h3><span class="id-badge">REL-08</span><span class="control-name">Settable Variables at Release Time</span></h3>
+        <div class="control-body">
+          <p class="description">Flags classic release pipeline variables that can be overridden at release creation time, which is a parameter-injection risk.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open the release pipeline definition.</li>
+              <li>Go to Variables.</li>
+              <li>Review each variable marked as "Settable at release time".</li>
+              <li>Remove the settable flag from variables that should not be overridden.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/inputs" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="inactive-repositories" data-name="Inactive Repositories" data-id="REPO-01">
+        <h3><span class="id-badge">REPO-01</span><span class="control-name">Inactive Repositories</span></h3>
+        <div class="control-body">
+          <p class="description">Identifies repositories with no commits in 180+ days that may be candidates for archival.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Repos.</li>
+              <li>Identify repositories with no commits in 180+ days.</li>
+              <li>Archive or delete unused repositories.</li>
+              <li>Consider moving to a dedicated archive project.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/git/manage-repos" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="certificate-based-authentication" data-name="Certificate-Based Authentication" data-id="SC-01">
+        <h3><span class="id-badge">SC-01</span><span class="control-name">Certificate-Based Authentication</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies Azure service connections authenticate using certificates or Workload Identity Federation rather than long-lived service principal secrets.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Service connections.</li>
+              <li>Select the service connection.</li>
+              <li>Click Edit.</li>
+              <li>Change authentication from secret to certificate-based or Workload Identity Federation.</li>
+              <li>Upload the certificate or configure federation.</li>
+              <li>Save.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/connect-to-azure#create-an-azure-resource-manager-service-connection-using-workload-identity-federation" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="subscription-management-group-scope" data-name="Subscription/Management Group Scope" data-id="SC-02">
+        <h3><span class="id-badge">SC-02</span><span class="control-name">Subscription/Management Group Scope</span></h3>
+        <div class="control-body">
+          <p class="description">Checks that Azure Resource Manager service connections are scoped to a Resource Group rather than an entire Subscription or Management Group.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings.</li>
+              <li>Open Service connections under Pipelines.</li>
+              <li>Select the Azure Resource Manager service connection.</li>
+              <li>Click Edit.</li>
+              <li>Change the Scope level from Subscription to a specific Resource Group.</li>
+              <li>Save the changes.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="usage-history-review" data-name="Usage History Review" data-id="SC-03">
+        <h3><span class="id-badge">SC-03</span><span class="control-name">Usage History Review</span></h3>
+        <div class="control-body">
+          <p class="description">Service connections must be reviewed on a recurring cadence so unused / stale connections are disabled or removed.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Service connections.</li>
+              <li>For each service connection, click the three dots &gt; Usage history.</li>
+              <li>Review which pipelines have used the connection recently.</li>
+              <li>Remove or disable any service connection that is no longer in use.</li>
+              <li>Schedule a recurring review (e.g. quarterly).</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="arm-service-connections-only" data-name="ARM Service Connections Only" data-id="SC-04">
+        <h3><span class="id-badge">SC-04</span><span class="control-name">ARM Service Connections Only</span></h3>
+        <div class="control-body">
+          <p class="description">Flags legacy Azure Classic service connections that should be replaced with Azure Resource Manager (ARM) connections using modern authentication.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings.</li>
+              <li>Open Service connections under Pipelines.</li>
+              <li>Identify any Azure Classic service connections.</li>
+              <li>Delete the Azure Classic connection (three dots &gt; Delete).</li>
+              <li>Create a new Azure Resource Manager service connection scoped to a resource group.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="strong-authentication-methods" data-name="Strong Authentication Methods" data-id="SC-09">
+        <h3><span class="id-badge">SC-09</span><span class="control-name">Strong Authentication Methods</span></h3>
+        <div class="control-body">
+          <p class="description">Promotes Workload Identity Federation (OIDC) or certificates over service principal client secrets on Azure service connections.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Service connections.</li>
+              <li>Select the service connection.</li>
+              <li>Click Edit.</li>
+              <li>Switch to Workload Identity Federation (recommended) or certificate authentication.</li>
+              <li>Save and verify pipeline access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/connect-to-azure#create-an-azure-resource-manager-service-connection-using-workload-identity-federation" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="no-cross-project-sharing" data-name="No Cross-Project Sharing" data-id="SC-11">
+        <h3><span class="id-badge">SC-11</span><span class="control-name">No Cross-Project Sharing</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies that service connections are not shared across multiple projects, limiting blast radius if one project is compromised.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings.</li>
+              <li>Open Service connections under Pipelines.</li>
+              <li>Select a service connection, click the three dots &gt; Security.</li>
+              <li>Under Project permissions, ensure only the current project has access.</li>
+              <li>Remove any other projects that no longer require access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints#project-permissions---cross-project-sharing-of-service-connections" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="inactive-user-access" data-name="Inactive User Access" data-id="USER-01">
+        <h3><span class="id-badge">USER-01</span><span class="control-name">Inactive User Access</span></h3>
+        <div class="control-body">
+          <p class="description">Identifies user accounts that have not signed in for 90+ days and should be removed to reduce attack surface and license costs.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Users.</li>
+              <li>Sort by Last Access Date.</li>
+              <li>Identify users inactive for 90+ days.</li>
+              <li>Remove or disable inactive accounts via the three dots &gt; Remove.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="deleted-disconnected-aad-users" data-name="Deleted/Disconnected AAD Users" data-id="USER-02">
+        <h3><span class="id-badge">USER-02</span><span class="control-name">Deleted/Disconnected AAD Users</span></h3>
+        <div class="control-body">
+          <p class="description">Detects Azure DevOps users whose underlying Microsoft Entra accounts have been deleted or disabled but who remain provisioned in Azure DevOps.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Run the assessment with -IncludeGraphCheck to auto-detect deleted/disabled users.</li>
+              <li>Navigate to Organization Settings &gt; Users.</li>
+              <li>Cross-reference with Azure AD to find deleted or disabled accounts.</li>
+              <li>Remove any users whose AAD accounts no longer exist.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="inactive-guest-users" data-name="Inactive Guest Users" data-id="USER-03">
+        <h3><span class="id-badge">USER-03</span><span class="control-name">Inactive Guest Users</span></h3>
+        <div class="control-body">
+          <p class="description">Identifies guest (B2B) accounts inactive for 90+ days that no longer need access and should be deprovisioned.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Organization Settings &gt; Users.</li>
+              <li>Filter for guest users (#EXT#) and sort by Last Access Date.</li>
+              <li>Identify guest users inactive for 90+ days.</li>
+              <li>Remove inactive guest accounts via the three dots &gt; Remove.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/organizations/security/security-best-practices" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="secret-variables-not-in-all-pipelines" data-name="Secret Variables Not in All Pipelines" data-id="VG-01">
+        <h3><span class="id-badge">VG-01</span><span class="control-name">Secret Variables Not in All Pipelines</span></h3>
+        <div class="control-body">
+          <p class="description">Verifies that variable groups containing secrets are scoped to specific pipelines rather than shared with every pipeline in the project.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Library.</li>
+              <li>Select the variable group containing secrets.</li>
+              <li>Click Security (or the three dots &gt; Security).</li>
+              <li>Under Pipeline permissions, click "Restrict Permission".</li>
+              <li>Add only the pipelines that need access.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/resources" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="use-azure-key-vault" data-name="Use Azure Key Vault" data-id="VG-04">
+        <h3><span class="id-badge">VG-04</span><span class="control-name">Use Azure Key Vault</span></h3>
+        <div class="control-body">
+          <p class="description">Recommends linking pipeline variable groups to Azure Key Vault rather than storing secret values directly in Azure DevOps.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Library.</li>
+              <li>Click + Variable group.</li>
+              <li>Enable "Link secrets from an Azure key vault".</li>
+              <li>Select the Azure subscription and Key Vault.</li>
+              <li>Choose the secrets to link.</li>
+              <li>Save the variable group.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/variable-groups#link-secrets-from-an-azure-key-vault" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    <p>Generated from <code>remediation-steps.psd1</code> · ADO-QR</p>
+  </footer>
+
+  <script>
+    (function () {
+      const cards = Array.from(document.querySelectorAll('.control-card'));
+      const tocList = document.getElementById('toc-list');
+      const tocCount = document.getElementById('toc-count');
+      const filter = document.getElementById('filter');
+      const count = document.getElementById('count');
+
+      // Build TOC + slugs
+      const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const tocItems = [];
+      cards.forEach((card) => {
+        const name = card.getAttribute('data-name');
+        const id = slugify(name);
+        card.id = id;
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = '#' + id;
+        const idAttr = card.getAttribute('data-id');
+        a.innerHTML = (idAttr ? '<code>' + idAttr + '</code> ' : '') + name;
+        li.appendChild(a);
+        tocList.appendChild(li);
+        tocItems.push({ card, li });
+      });
+      tocCount.textContent = cards.length;
+
+      const updateCount = () => {
+        const visible = cards.filter((c) => !c.classList.contains('hidden')).length;
+        count.textContent = `${visible} of ${cards.length} controls`;
+        tocCount.textContent = visible;
+      };
+      updateCount();
+
+      filter.addEventListener('input', () => {
+        const q = filter.value.trim().toLowerCase();
+        tocItems.forEach(({ card, li }) => {
+          const hidden = q && !card.textContent.toLowerCase().includes(q);
+          card.classList.toggle('hidden', hidden);
+          li.classList.toggle('hidden', hidden);
+        });
+        updateCount();
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -270,4 +270,84 @@
         Steps = @('Open the release pipeline definition.','Go to Variables.','Review each variable marked as "Settable at release time".','Remove the settable flag from variables that should not be overridden.')
         DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/security/inputs'
     }
+    'IP Allow List' = @{
+        Steps = @('Microsoft Entra ID P1 or P2 is required.','In the Microsoft Entra admin center, open Protection > Conditional Access.','Create or update a policy targeting the Azure DevOps cloud app.','Under Conditions > Locations, define your trusted IP ranges as a named location.','Set the policy to Block (or Grant with restrictions) for sign-ins outside those locations.','Enable the policy and validate from a non-trusted IP.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/manage-conditional-access'
+    }
+    'Privileged Group Membership' = @{
+        Steps = @('Navigate to Organization Settings > Permissions.','Open the Project Collection Administrators group (and any other privileged groups).','Review every member; remove anyone without a current, documented business need.','Prefer adding a Microsoft Entra group rather than individual users so membership is governed centrally.','Re-review on a recurring schedule (e.g. quarterly).')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/organizations/security/look-up-project-collection-administrators'
+    }
+    'Service Accounts in Privileged Roles' = @{
+        Steps = @('Navigate to Organization Settings > Permissions > Project Collection Administrators.','Identify any service / non-person accounts (e.g. build, deploy, automation identities).','Replace them with a workload identity (managed identity, service principal, or workload identity federation) scoped to the minimum required permissions.','Remove the service accounts from the privileged group.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/organizations/security/about-permissions'
+    }
+    'ALT Accounts for Admin Activity' = @{
+        Steps = @('Provision dedicated ALT / SC-ALT (administrator) accounts for every user who performs privileged actions.','Restrict day-to-day work (email, browsing, code commits) to the standard account.','Remove the standard user accounts from Project Collection Administrators and Project Administrators.','Add only the ALT accounts to privileged groups.','Enforce phishing-resistant MFA and Conditional Access on the ALT accounts.')
+        DocUrl = 'https://learn.microsoft.com/en-us/security/privileged-access-workstations/privileged-access-strategy'
+    }
+    'Security Patches on Self-Hosted VMs' = @{
+        Steps = @('Identify the host machine(s) backing the self-hosted agent pool.','Enroll them in your patch-management solution (Azure Update Manager, WSUS, SCCM, Ansible, etc.).','Confirm the agent service restarts cleanly after patching.','Establish a maximum patch-lag SLA (e.g. critical CVEs within 7 days).','Document an exception process for anything that cannot be patched.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents'
+    }
+    'Hardened OS Image' = @{
+        Steps = @('Base the self-hosted agent VM on a hardened image (CIS-benchmarked, Azure Marketplace hardened image, or your golden image).','Disable unused services and inbound ports.','Apply a host firewall allow-list and EDR/antimalware.','Run periodic configuration scans (Microsoft Defender for Cloud, Azure Policy guest configuration, etc.) and remediate drift.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents'
+    }
+    'Audit Log Backup' = @{
+        Steps = @('Navigate to Organization Settings > Auditing > Streams.','Configure an audit stream to an external destination (Azure Event Grid, Azure Monitor / Log Analytics, Splunk, or a generic webhook).','Confirm events are arriving at the destination.','Retain the exported audit data per your compliance retention requirement (Azure DevOps only retains audit events for 90 days).')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/organizations/audit/auditing-streaming'
+    }
+    'Alerts Configuration' = @{
+        Steps = @('Stream audit events to Log Analytics (Azure Monitor) via an audit stream.','Define KQL alert rules for sensitive actions: PCA group changes, policy changes, new service connections, extension installs, PAT creation with broad scopes, etc.','Route alerts to an on-call channel (Teams, PagerDuty, email).','Tune thresholds quarterly to control noise.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/organizations/audit/auditing-events'
+    }
+    'Static Code Analysis' = @{
+        Steps = @('Decide on the SAST tool(s) (CodeQL via GHAzDO, SonarQube/SonarCloud, Checkmarx, Semgrep, etc.).','Add the analysis task(s) to each build pipeline (or a shared template).','Fail the build on new high/critical findings; track existing findings as work items.','For Azure Repos, enable GitHub Advanced Security for Azure DevOps to get code scanning and push protection out of the box.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/repos/security/configure-github-advanced-security-features'
+    }
+    'Secure Files for Secrets' = @{
+        Steps = @('Navigate to Project > Pipelines > Library > Secure files.','Upload certificates, keystores, signing keys, etc. as secure files (rather than committing them to the repo).','Restrict pipeline permissions on each secure file to only the pipelines that need it.','In pipelines, use the DownloadSecureFile@1 task to consume them.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/library/secure-files'
+    }
+    'GitHub Copilot Extension Review' = @{
+        Steps = @('Navigate to Organization Settings > Extensions > Installed.','Confirm any Copilot-related extensions are published by GitHub (or another explicitly approved publisher).','Uninstall unapproved or look-alike extensions.','Document an approval workflow for AI / Copilot-style extensions and align with your AI / data-handling policy.','Review extension permissions and the data they can access.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/marketplace/install-extension'
+    }
+    'Shared Extension Scrutiny' = @{
+        Steps = @('Navigate to Organization Settings > Extensions > Shared (and Installed).','For each non-built-in extension, verify the publisher is trusted and the extension is still actively maintained.','Remove unused or unverified extensions.','Establish an approved-publisher allow-list and an intake review for new extension requests.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/marketplace/install-extension'
+    }
+    'Extension Manager Review' = @{
+        Steps = @('Navigate to Organization Settings > Extensions > Permissions.','Review who holds the Manage Extensions permission.','Restrict the Manager role to a small, trusted group (e.g. Project Collection Administrators).','Remove any individual users that no longer need the permission.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/marketplace/how-to/grant-permissions'
+    }
+    'Feed Creation Permissions' = @{
+        Steps = @('Navigate to Organization Settings > Artifacts > Permissions (or the Artifacts hub at organization scope).','Review who has the "Create new feed" permission.','Restrict creation to a small, named group (e.g. Feed Administrators) rather than Project Collection Valid Users.','Document an intake process for new feeds.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/artifacts/feeds/feed-permissions'
+    }
+    'Repository Creation Permission' = @{
+        Steps = @('Navigate to Project Settings > Repositories > Security.','Locate the "Create repository" permission.','Set Allow only for trusted groups (e.g. Project Administrators); set Not set or Deny for broad groups like Contributors.','Document an intake process for new repos.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/repos/git/set-git-repository-permissions'
+    }
+    'Auto-Injected Tasks' = @{
+        Steps = @('Navigate to Organization Settings > Pipelines (and any extensions that auto-inject tasks).','List every task that is auto-injected into pipelines (decorators, pipeline policies, agent pre/post-jobs).','For each, confirm the task is published by a trusted source and required by policy.','Remove unused or unverified decorators.','Pin tasks to a specific version where the marketplace supports it.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/security/overview'
+    }
+    'Project Admin Group Membership' = @{
+        Steps = @('Navigate to Project Settings > Permissions > Project Administrators.','Review every member; remove anyone without a documented business need.','Prefer adding a Microsoft Entra group rather than individual users.','Re-review on a recurring schedule (e.g. quarterly).')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/organizations/security/change-project-level-permissions'
+    }
+    'Artifact Evaluation' = @{
+        Steps = @('Navigate to Project > Pipelines > Environments > [environment] > Approvals and checks.','Add an "Evaluate artifact" check.','Define the policy (e.g. require a signed artifact, require a specific build pipeline as the source).','Test by attempting a deployment from a non-compliant artifact and confirm it is blocked.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals'
+    }
+    'Production from Main Branch Only' = @{
+        Steps = @('Navigate to Project > Pipelines > Environments > [production environment] > Approvals and checks.','Add a "Branch control" check.','Set Allowed branches to refs/heads/main (or your protected production branch).','Enable "Ensure protection of the branch" so the check fails if branch policies are not in place.','Validate that a deployment from a feature branch is blocked.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals'
+    }
+    'Usage History Review' = @{
+        Steps = @('Navigate to Project Settings > Service connections.','For each service connection, click the three dots > Usage history.','Review which pipelines have used the connection recently.','Remove or disable any service connection that is no longer in use.','Schedule a recurring review (e.g. quarterly).')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints'
+    }
 }
