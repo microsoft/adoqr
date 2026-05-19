@@ -951,15 +951,16 @@
       <article class="control-card" id="external-package-protection" data-name="External Package Protection" data-id="FEED-03">
         <h3><span class="id-badge">FEED-03</span><span class="control-name">External Package Protection</span></h3>
         <div class="control-body">
-          <p class="description">Reviews Artifacts upstream sources to limit pulling from public registries and protect against dependency-confusion attacks.</p>
+          <p class="description">Advisory: flags feeds with active upstream sources. Upstreams are usually required; the real mitigation against dependency-confusion is to publish every internal package name to the feed at least once (save-to-feed) so the local copy always wins over public registries.</p>
           <details class="steps-details">
             <summary>Remediation steps</summary>
             <ol>
-              <li>Navigate to Artifacts &gt; select the feed.</li>
-              <li>Click the gear icon (Feed settings).</li>
-              <li>Review Upstream sources.</li>
-              <li>Disable unnecessary upstream sources.</li>
-              <li>Enable "Override packages from public sources" protection if available.</li>
+              <li>Decide whether each upstream (npmjs, nuget.org, Maven Central, etc.) is required. Disable any that aren't.</li>
+              <li>List every internal package name your org publishes.</li>
+              <li>Publish each internal name to the feed at least once so it's saved-to-feed.</li>
+              <li>For npm, use scoped package names (<code>@your-scope/...</code>).</li>
+              <li>Filter the feed view by <em>Saved</em> periodically to confirm internal names are present.</li>
+              <li>Document acceptance of FEED-03 in your remediation log once the mitigation is verified.</li>
             </ol>
             <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/artifacts/concepts/upstream-sources" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
           </details>
