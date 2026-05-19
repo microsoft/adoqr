@@ -92,7 +92,6 @@ $script:ProductionKeywords = @('prod', 'production', 'prd', 'live', 'release')
 #endregion
 
 #region Helpers
-
 function Get-AdoBearerToken {
     try {
         $token = az account get-access-token --resource "499b84ac-1321-427f-aa17-267ca6975798" --query accessToken -o tsv 2>&1
@@ -897,16 +896,52 @@ function Build-ComparisonSectionHtml {
       + '</tr>';
   }
 
-  function renderGroup(title, rows, emptyMsg, borderClr) {
-    var h = '<div class="cmp-group"><div class="cmp-group-hdr" style="border-left-color:' + borderClr + '">'
-          + '<span class="cmp-cnt">' + rows.length + '</span> ' + title + '</div>';
+    function renderGroup(title, rows, emptyMsg, borderClr, openByDefault) {
+        var openAttr = openByDefault ? ' open' : '';
+        var h = '<details class="cmp-group"' + openAttr + ' style="border-left-color:' + borderClr + '">'
+                    + '<summary class="cmp-group-hdr">'
+                    + '<span class="cmp-cnt">' + rows.length + '</span>'
+                    + '<span>' + title + '</span>'
+                    + '<span class="cmp-disclosure">Details</span>'
+                    + '</summary>';
     if (rows.length === 0) {
-      h += '<p style="color:var(--text2);font-size:.9rem;padding:.25rem 0 .75rem">' + emptyMsg + '</p>';
+            h += '<p class="cmp-empty">' + emptyMsg + '</p>';
     } else {
       h += '<div class="tbl-wrap"><table><thead><tr><th>Control</th><th>Severity</th><th>Scope</th><th>Change</th></tr></thead>'
          + '<tbody>' + rows.join('') + '</tbody></table></div>';
     }
-    return h + '</div>';
+        return h + '</details>';
+    }
+
+    function trendLabel(dPct, dFail, regressed, improved) {
+        if (regressed > 0 || dPct < 0 || dFail > 0) return { text: 'Needs attention', cls: 'cmp-verdict-risk' };
+        if (improved > 0 || dPct > 0 || dFail < 0) return { text: 'Improving', cls: 'cmp-verdict-good' };
+        return { text: 'Stable', cls: 'cmp-verdict-stable' };
+    }
+
+    function renderExecutiveSummary(a, b, aPct, bPct, dPct, dFail, improved, regressed, persist) {
+        var trend = trendLabel(dPct, dFail, regressed.length, improved.length);
+        var direction = dPct > 0 ? 'up' : dPct < 0 ? 'down' : 'unchanged';
+        var failDirection = dFail < 0 ? 'down' : dFail > 0 ? 'up' : 'unchanged';
+        var primary = '';
+        if (regressed.length > 0) {
+            primary = regressed.length + ' control' + (regressed.length === 1 ? ' has' : 's have') + ' regressed since the baseline.';
+        } else if (improved.length > 0) {
+            primary = improved.length + ' control' + (improved.length === 1 ? ' is' : 's are') + ' now passing with no new regressions.';
+        } else if (persist.length > 0) {
+            primary = 'No new regressions, but ' + persist.length + ' control' + (persist.length === 1 ? ' remains' : 's remain') + ' failing.';
+        } else {
+            primary = 'No material control movement detected between the selected runs.';
+        }
+
+        return '<div class="cmp-executive-summary">'
+            + '<div class="cmp-verdict ' + trend.cls + '">' + esc(trend.text) + '</div>'
+            + '<div class="cmp-summary-copy">'
+            +   '<strong>' + esc(primary) + '</strong>'
+            +   '<span>Pass rate is ' + direction + ' from ' + bPct + '% to ' + aPct + '%, and failures are ' + failDirection + ' by ' + Math.abs(dFail) + '.</span>'
+            + '</div>'
+            + '<div class="cmp-summary-meta">Comparing <strong>' + esc(a.runId) + '</strong> against <strong>' + esc(b.runId) + '</strong>.</div>'
+            + '</div>';
   }
 
   function run() {
@@ -951,7 +986,9 @@ function Build-ComparisonSectionHtml {
     var fArrow = dFail < 0 ? '\u25B2' : dFail > 0 ? '\u25BC' : '\u25AC';
     var fClr   = dFail < 0 ? 'var(--pass)' : dFail > 0 ? 'var(--fail)' : 'var(--text2)';
 
-    var html = '<div class="cards cmp-delta-cards">'
+        var html = renderExecutiveSummary(a, b, aPct, bPct, dPct, dFail, improved, regressed, persist);
+
+        html += '<div class="cards cmp-delta-cards">'
       + '<div class="card"><div class="card-value" style="color:' + pClr + '">' + pArrow + ' ' + Math.abs(dPct) + '%</div>'
       +   '<div class="card-label">Pass Rate Change</div>'
       +   '<div style="font-size:.8rem;color:var(--text2);margin-top:.25rem">' + bPct + '% \u2192 ' + aPct + '%</div></div>'
@@ -963,10 +1000,12 @@ function Build-ComparisonSectionHtml {
       + '<div class="card"><div class="card-value" style="color:var(--warn)">' + persist.length + '</div><div class="card-label">Still Failing</div></div>'
       + '</div>';
 
+        html += '<div class="cmp-detail-intro"><strong>Detailed movement</strong><span>Expand a section to review the specific controls behind the summary.</span></div>';
+
     html += renderGroup(
       'Regressed \u2014 PASS \u2192 FAIL',
       regressed.map(function (x) { return renderRow(x.a, '<span style="color:var(--fail)">\u25BC PASS \u2192 FAIL</span>'); }),
-      'No regressions. Great work!', 'var(--fail)');
+            'No regressions in the selected comparison.', 'var(--fail)', regressed.length > 0);
 
     html += renderGroup(
       'Improved \u2014 now PASS',
@@ -974,24 +1013,24 @@ function Build-ComparisonSectionHtml {
         var fr = x.b.status === 'NOT CHECKED' ? 'NOT CHECKED' : 'FAIL';
         return renderRow(x.a, '<span style="color:var(--pass)">\u25B2 ' + fr + ' \u2192 PASS</span>');
       }),
-      'No new improvements.', 'var(--pass)');
+            'No controls moved into PASS.', 'var(--pass)', false);
 
     html += renderGroup(
       'Still Failing',
       persist.map(function (x) { return renderRow(x.a, '<span style="color:var(--warn)">\u25AC Still FAIL</span>'); }),
-      'No persistent failures.', 'var(--warn)');
+            'No controls failed in both selected runs.', 'var(--warn)', regressed.length === 0 && persist.length > 0);
 
     if (added.length > 0) {
       html += renderGroup(
         'New Controls (in current run only)',
         added.map(function (c) { return renderRow(c, '<span style="color:var(--info)">New</span>'); }),
-        '', 'var(--info)');
+                '', 'var(--info)', false);
     }
     if (removed.length > 0) {
       html += renderGroup(
         'Removed Controls (from baseline only)',
         removed.map(function (c) { return renderRow(c, '<span style="color:var(--text2)">Removed</span>'); }),
-        '', 'var(--surface2)');
+                '', 'var(--surface2)', false);
     }
     elResult.innerHTML = html;
   }
@@ -1004,7 +1043,8 @@ function Build-ComparisonSectionHtml {
 
     return @"
     <!-- Run Comparison Section -->
-    <section class="section" id="comparison-section" aria-label="Run comparison">
+    <section class="section section-accent-info" id="comparison-section" aria-label="Run comparison">
+      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Trend</p>
       <h2>&#128202; Run Comparison</h2>
       <p id="cmp-nodata" style="color:var(--text2)">No previous scan data available for comparison.
                 Keep prior assessment folders, or run with <code style="background:var(--surface2);padding:.1rem .4rem;border-radius:4px">-OutputFormat json</code>
@@ -1027,6 +1067,151 @@ function Build-ComparisonSectionHtml {
     </section>
     <script>window.__adoqrRuns=$runsJson;</script>
     <script>$jsCode</script>
+"@
+}
+
+function Get-NotCheckedReasonCategory {
+        <#
+        .SYNOPSIS
+                Classifies a NOT CHECKED finding into an executive-readable reason.
+        #>
+        [CmdletBinding()]
+        param([string]$Finding)
+
+        if ($Finding -match '(?i)manual review required|manual review recommended') {
+                return 'Manual review required'
+        }
+        if ($Finding -match '(?i)requires\s+-|requires querying|requires .+permission|may require') {
+                return 'Prerequisite or permission needed'
+        }
+        if ($Finding -match '(?i)could not retrieve|could not determine|could not locate|could not enumerate|unable to') {
+                return 'Data unavailable'
+        }
+        if ($Finding -match '(?i)not found|policy not found|setting not found') {
+                return 'Setting not found'
+        }
+        if ($Finding -match '(?i)^no .+ found|nothing .+ found') {
+                return 'No applicable data found'
+        }
+        return 'Review needed'
+}
+
+function Build-NotCheckedSectionHtml {
+        <#
+        .SYNOPSIS
+                Builds an executive explanation section for NOT CHECKED controls.
+        .DESCRIPTION
+                NOT CHECKED is not a pass/fail outcome. This section explains why a
+                control could not be evaluated automatically and gives the reader a
+                scoped evidence list without cluttering the primary KPI cards.
+        #>
+        [CmdletBinding()]
+        param(
+                [PSCustomObject]$OrgSummary,
+                [PSCustomObject[]]$ProjectSummaries
+        )
+
+        $items = [System.Collections.Generic.List[PSCustomObject]]::new()
+        if ($OrgSummary -and $OrgSummary.PSObject.Properties['Results'] -and $OrgSummary.Results) {
+                foreach ($r in @($OrgSummary.Results | Where-Object Status -eq 'NOT CHECKED')) {
+                        $items.Add([PSCustomObject]@{
+                                Scope    = 'Organization'
+                                Control  = "$($r.Id): $($r.Control)"
+                                Severity = $r.Severity
+                                Finding  = $r.Finding
+                                Reason   = Get-NotCheckedReasonCategory -Finding $r.Finding
+                        })
+                }
+        }
+
+        foreach ($p in @($ProjectSummaries)) {
+                if (-not ($p.PSObject.Properties['Results']) -or -not $p.Results) { continue }
+                foreach ($r in @($p.Results | Where-Object Status -eq 'NOT CHECKED')) {
+                        $items.Add([PSCustomObject]@{
+                                Scope    = "Project: $($p.Project)"
+                                Control  = "$($r.Id): $($r.Control)"
+                                Severity = $r.Severity
+                                Finding  = $r.Finding
+                                Reason   = Get-NotCheckedReasonCategory -Finding $r.Finding
+                        })
+                }
+        }
+
+        if ($items.Count -eq 0) { return '' }
+
+        $reasonCards = [System.Text.StringBuilder]::new()
+        $reasonCounts = New-Object System.Collections.Hashtable
+        foreach ($item in $items) {
+                if (-not $reasonCounts.ContainsKey($item.Reason)) { $reasonCounts[$item.Reason] = 0 }
+                $reasonCounts[$item.Reason]++
+        }
+        foreach ($reason in $reasonCounts.Keys) {
+            $desc = 'The scanner captured a reason, but it does not map to a standard category yet.'
+            $reasonCount = $reasonCounts[$reason]
+            [void]$reasonCards.AppendLine('                    <div class="nc-reason-card">')
+            [void]$reasonCards.AppendLine('                        <div class="nc-reason-count">' + $reasonCount + '</div>')
+            [void]$reasonCards.AppendLine('                        <div>')
+            [void]$reasonCards.AppendLine("                            <strong>$([System.Web.HttpUtility]::HtmlEncode($reason))</strong>")
+            [void]$reasonCards.AppendLine("                            <p>$([System.Web.HttpUtility]::HtmlEncode($desc))</p>")
+            [void]$reasonCards.AppendLine('                        </div>')
+            [void]$reasonCards.AppendLine('                    </div>')
+        }
+
+        $detailGroups = [System.Text.StringBuilder]::new()
+        $scopeGroups = New-Object System.Collections.Hashtable
+        foreach ($item in $items) {
+            if (-not $scopeGroups.ContainsKey($item.Scope)) { $scopeGroups[$item.Scope] = [System.Collections.Generic.List[PSCustomObject]]::new() }
+            $scopeGroups[$item.Scope].Add($item)
+        }
+        foreach ($scope in $scopeGroups.Keys) {
+                $rows = [System.Text.StringBuilder]::new()
+            foreach ($item in $scopeGroups[$scope]) {
+                        $sevClass = switch ($item.Severity) { 'High' { 'nc-sev-high' } 'Medium' { 'nc-sev-medium' } 'Low' { 'nc-sev-low' } default { 'nc-sev-low' } }
+                        [void]$rows.AppendLine(@"
+                            <tr>
+                                <td><strong>$([System.Web.HttpUtility]::HtmlEncode($item.Control))</strong><br><span>$([System.Web.HttpUtility]::HtmlEncode($item.Reason))</span></td>
+                                <td><span class="nc-sev $sevClass">$([System.Web.HttpUtility]::HtmlEncode($item.Severity))</span></td>
+                                <td>$([System.Web.HttpUtility]::HtmlEncode($item.Finding))</td>
+                            </tr>
+"@)
+                }
+
+                [void]$detailGroups.AppendLine(@"
+                <details class="nc-detail">
+                    <summary><span>$([System.Web.HttpUtility]::HtmlEncode($scope))</span><span class="nc-detail-count">$($scopeGroups[$scope].Count)</span></summary>
+                    <div class="tbl-wrap">
+                        <table>
+                            <thead><tr><th>Control</th><th>Severity</th><th>Why it was not checked</th></tr></thead>
+                            <tbody>
+                                $($rows.ToString())
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+"@)
+        }
+
+        return @"
+        <details class="section section-accent-warn section-collapsible" id="not-checked-section" aria-label="Not checked controls explanation">
+            <summary class="section-collapsible-summary">
+                <div class="section-collapsible-title">
+                    <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Not Checked</p>
+                    <h2>Not Checked Controls</h2>
+                </div>
+                <span class="section-collapsible-count" aria-label="$($items.Count) controls not checked">$($items.Count)</span>
+                <span class="section-collapsible-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="nc-explainer">
+                <strong>Not checked does not mean failed.</strong>
+                <span>These controls need more context, permissions, configuration data, or manual confirmation before adoqr can make a PASS/FAIL determination.
+                    See the <a href="https://microsoft.github.io/adoqr/controls.html" target="_blank" rel="noopener noreferrer">controls reference&nbsp;&#8599;</a> for what each control evaluates and how to remediate it.</span>
+            </div>
+            <div class="nc-reason-grid">
+                $($reasonCards.ToString())
+            </div>
+            <div class="nc-details-intro"><strong>Review details</strong><span>Expand a scope to see the exact controls and the recorded reason.</span></div>
+            $($detailGroups.ToString())
+        </details>
 "@
 }
 
@@ -1396,6 +1581,7 @@ function Write-ExecutiveHtmlReport {
     }
 
     $orgMdFile = [System.IO.Path]::GetFileName($OrgSummary.ReportFile)
+    $notCheckedHtml = Build-NotCheckedSectionHtml -OrgSummary $OrgSummary -ProjectSummaries $ProjectSummaries
 
     $html = @"
 <!DOCTYPE html>
@@ -1442,8 +1628,103 @@ function Write-ExecutiveHtmlReport {
     .card-nc   .card-value { color: var(--warn); }
     .card-risk .card-value { color: $riskColor; }
 
-    .section { margin: 2.5rem 0; }
-    .section h2 { font-size: 1.25rem; font-weight: 700; margin: 0 0 1rem; padding-bottom: .5rem; border-bottom: 1px solid var(--surface2); }
+    /* Section panels — each report section is a distinct elevated card with an accent edge */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--surface2);
+      border-top: 3px solid var(--surface2);
+      border-radius: 16px;
+      padding: 1.75rem 1.75rem 1.5rem;
+      margin: 0 0 1.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.25), 0 8px 24px rgba(0,0,0,.18);
+      scroll-margin-top: 5rem;
+      break-inside: avoid;
+    }
+    .section-accent-pass    { border-top-color: var(--pass); }
+    .section-accent-fail    { border-top-color: var(--fail); }
+    .section-accent-warn    { border-top-color: var(--warn); }
+    .section-accent-info    { border-top-color: var(--info); }
+    .section-accent-accent  { border-top-color: var(--accent); }
+
+    .section-eyebrow {
+      display: inline-flex; align-items: center; gap: .5rem;
+      font-size: .72rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .12em;
+      color: var(--text2); margin: 0 0 .35rem;
+    }
+    .section-eyebrow-dot {
+      display: inline-block; width: .55rem; height: .55rem; border-radius: 999px;
+      background: var(--surface2);
+    }
+    .section-accent-pass   .section-eyebrow-dot { background: var(--pass); }
+    .section-accent-fail   .section-eyebrow-dot { background: var(--fail); }
+    .section-accent-warn   .section-eyebrow-dot { background: var(--warn); }
+    .section-accent-info   .section-eyebrow-dot { background: var(--info); }
+    .section-accent-accent .section-eyebrow-dot { background: var(--accent); }
+
+    .section h2 { font-size: 1.5rem; font-weight: 700; margin: 0 0 1.25rem; padding: 0; border-bottom: none; }
+
+    /* Collapsible section panel — entire section toggles open/closed */
+    details.section-collapsible { padding-top: 1.25rem; }
+    .section-collapsible-summary {
+      list-style: none; cursor: pointer; outline: none;
+      display: flex; align-items: center; gap: 1rem;
+    }
+    .section-collapsible-summary::-webkit-details-marker { display: none; }
+    .section-collapsible-summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
+    .section-collapsible-title { flex: 1; min-width: 0; }
+    .section-collapsible-title .section-eyebrow { margin: 0 0 .25rem; }
+    .section-collapsible-title h2 { margin: 0; }
+    .section-collapsible-count {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 2.2rem; height: 1.9rem; padding: 0 .7rem; border-radius: 999px;
+      background: var(--surface2); color: var(--text); font-weight: 800; font-size: .85rem;
+    }
+    .section-accent-warn .section-collapsible-count { background: rgba(245,158,11,.15); color: var(--warn); }
+    .section-accent-fail .section-collapsible-count { background: rgba(239,68,68,.15);  color: var(--fail); }
+    .section-accent-pass .section-collapsible-count { background: rgba(34,197,94,.15);  color: var(--pass); }
+    .section-accent-info .section-collapsible-count { background: rgba(59,130,246,.15); color: var(--info); }
+    .section-collapsible-chevron {
+      width: 1.9rem; height: 1.9rem; border-radius: 999px;
+      background: var(--surface2); color: var(--text);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; line-height: 1; font-weight: 700; flex: 0 0 auto;
+    }
+    .section-collapsible-chevron::before { content: '+'; }
+    details.section-collapsible[open] .section-collapsible-chevron::before { content: '\2212'; } /* minus sign */
+    details.section-collapsible[open] > .section-collapsible-summary { margin-bottom: 1.25rem; }
+
+    @media print {
+      details.section-collapsible .section-collapsible-chevron { display: none; }
+    }
+
+    /* Sticky in-page navigation — jump links to each section */
+    .section-nav {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(15,23,42,.88); backdrop-filter: saturate(160%) blur(10px);
+      -webkit-backdrop-filter: saturate(160%) blur(10px);
+      border-bottom: 1px solid var(--surface2);
+    }
+    .section-nav-inner {
+      max-width: 1200px; margin: 0 auto; padding: .55rem 1.5rem;
+      display: flex; gap: .4rem; overflow-x: auto;
+      -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    .section-nav-inner::-webkit-scrollbar { display: none; }
+    .section-nav a {
+      flex: 0 0 auto;
+      padding: .4rem .85rem; border-radius: 999px;
+      font-size: .8rem; font-weight: 600; color: var(--text2);
+      background: transparent; border: 1px solid transparent;
+      white-space: nowrap; text-decoration: none;
+      transition: background .15s, color .15s, border-color .15s;
+    }
+    .section-nav a:hover { color: var(--text); background: var(--surface); }
+    .section-nav a.is-active { color: var(--text); background: var(--surface); border-color: var(--surface2); }
+    .section-nav a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .section-nav-resources { margin-left: auto; display: flex; gap: .4rem; flex: 0 0 auto; padding-left: .75rem; }
+    .section-nav a.nav-external { color: var(--accent); }
+    .section-nav a.nav-external::after { content: ' \2197'; font-size: .85em; opacity: .75; }
 
     /* Progress ring */
     .ring-container { display: flex; align-items: center; gap: 2rem; flex-wrap: wrap; }
@@ -1483,10 +1764,49 @@ function Write-ExecutiveHtmlReport {
     .action-info    { border-left: 4px solid var(--info); }
     .action-rank { color: var(--text2); font-size: .8rem; font-weight: 700; min-width: 2rem; }
 
+        /* Not checked explanation */
+        .nc-explainer {
+            display: flex; flex-direction: column; gap: .2rem; background: var(--surface);
+            border-left: 4px solid var(--warn); border-radius: 0 8px 8px 0;
+            padding: 1rem 1.25rem; margin-bottom: 1rem;
+        }
+        .nc-explainer span, .nc-reason-card p, .nc-details-intro span { color: var(--text2); }
+        .nc-reason-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+        .nc-reason-card {
+            display: flex; gap: .75rem; align-items: flex-start; background: var(--surface);
+            border: 1px solid var(--surface2); border-radius: 8px; padding: .9rem 1rem;
+        }
+        .nc-reason-count {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 2rem; height: 2rem; padding: 0 .45rem; border-radius: 999px;
+            background: rgba(245,158,11,.15); color: var(--warn); font-weight: 800;
+        }
+        .nc-reason-card p { margin: .15rem 0 0; font-size: .85rem; line-height: 1.4; }
+        .nc-details-intro { display: flex; align-items: baseline; gap: .6rem; margin: 0 0 .75rem; font-size: .9rem; }
+        .nc-detail { background: var(--surface); border-radius: 8px; margin-bottom: .75rem; overflow: hidden; }
+        .nc-detail summary {
+            display: flex; align-items: center; gap: .75rem; cursor: pointer; list-style: none;
+            padding: .75rem 1rem; font-weight: 700;
+        }
+        .nc-detail summary::-webkit-details-marker { display: none; }
+        .nc-detail summary::after { content: '+'; margin-left: auto; color: var(--text2); font-size: 1.15rem; line-height: 1; }
+        .nc-detail[open] summary { border-bottom: 1px solid var(--surface2); }
+        .nc-detail[open] summary::after { content: '-'; }
+        .nc-detail-count {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 1.6rem; height: 1.6rem; padding: 0 .4rem; border-radius: 999px;
+            background: var(--surface2); color: var(--text); font-size: .8rem; font-weight: 800;
+        }
+        .nc-detail td span { color: var(--text2); font-size: .85rem; }
+        .nc-sev { display: inline-block; padding: .15rem .5rem; border-radius: 999px; font-size: .75rem; font-weight: 800; text-transform: uppercase; }
+        .nc-sev-high { background: rgba(239,68,68,.12); color: var(--fail); }
+        .nc-sev-medium { background: rgba(245,158,11,.12); color: var(--warn); }
+        .nc-sev-low { background: rgba(59,130,246,.12); color: var(--info); }
+
     /* Org row */
     .org-summary {
-      background: var(--surface); border-radius: var(--radius); padding: 1.25rem 1.5rem;
-      margin-bottom: 1.5rem; box-shadow: var(--shadow);
+      background: var(--surface2); border-radius: var(--radius); padding: 1.25rem 1.5rem;
+      margin-bottom: 0;
       display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;
     }
     .org-summary .org-stats { display: flex; gap: 1.5rem; }
@@ -1518,11 +1838,45 @@ function Write-ExecutiveHtmlReport {
     .cmp-vs {
       font-size: 1rem; font-weight: 700; color: var(--text2); padding-bottom: .5rem; align-self: flex-end;
     }
-    .cmp-group { margin-bottom: 1.25rem; }
+        .cmp-executive-summary {
+            display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .75rem 1rem;
+            align-items: center; background: var(--surface); border: 1px solid var(--surface2);
+            border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow);
+        }
+        .cmp-verdict {
+            display: inline-flex; align-items: center; justify-content: center; min-width: 8.5rem;
+            padding: .4rem .75rem; border-radius: 999px; font-size: .8rem; font-weight: 800;
+            text-transform: uppercase; letter-spacing: .04em;
+        }
+        .cmp-verdict-good { background: rgba(34,197,94,.15); color: var(--pass); }
+        .cmp-verdict-risk { background: rgba(239,68,68,.15); color: var(--fail); }
+        .cmp-verdict-stable { background: rgba(148,163,184,.15); color: var(--text2); }
+        .cmp-summary-copy { display: flex; flex-direction: column; gap: .2rem; }
+        .cmp-summary-copy strong { font-size: 1rem; }
+        .cmp-summary-copy span, .cmp-summary-meta { color: var(--text2); font-size: .9rem; }
+        .cmp-summary-meta { grid-column: 2; }
+        .cmp-detail-intro {
+            display: flex; align-items: baseline; gap: .6rem; margin: 0 0 .75rem;
+            color: var(--text2); font-size: .9rem;
+        }
+        .cmp-detail-intro strong { color: var(--text); }
+        .cmp-group {
+            margin-bottom: .75rem; background: var(--surface); border-left: 4px solid var(--accent);
+            border-radius: 0 8px 8px 0; overflow: hidden;
+        }
     .cmp-group-hdr {
-      display: flex; align-items: center; gap: .6rem;
-      padding: .6rem 1rem; background: var(--surface); border-left: 4px solid var(--accent);
-      border-radius: 0 8px 8px 0; font-weight: 700; font-size: .95rem; margin-bottom: .5rem;
+            display: flex; align-items: center; gap: .6rem; list-style: none;
+            padding: .75rem 1rem; font-weight: 700; font-size: .95rem; cursor: pointer;
+        }
+        .cmp-group-hdr::-webkit-details-marker { display: none; }
+        .cmp-group-hdr::after {
+            content: '+'; margin-left: auto; color: var(--text2); font-size: 1.15rem; line-height: 1;
+        }
+        .cmp-group[open] .cmp-group-hdr::after { content: '-'; }
+        .cmp-group[open] .cmp-group-hdr { border-bottom: 1px solid var(--surface2); }
+        .cmp-disclosure {
+            margin-left: auto; color: var(--text2); font-size: .75rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .04em;
     }
     .cmp-cnt {
       display: inline-flex; align-items: center; justify-content: center;
@@ -1530,14 +1884,28 @@ function Write-ExecutiveHtmlReport {
       min-width: 1.6rem; height: 1.6rem; padding: 0 .4rem;
       font-size: .8rem; font-weight: 800; color: var(--text);
     }
+        .cmp-empty { color: var(--text2); font-size: .9rem; padding: 0 1rem 1rem; margin: .75rem 0 0; }
     .cmp-delta-cards { margin-bottom: 1.5rem; }
 
     @media (max-width: 640px) {
       .cards { grid-template-columns: 1fr 1fr; }
       .meta { flex-direction: column; gap: .5rem; }
       .ring-container { justify-content: center; }
-      .cmp-pickers { flex-direction: column; }
+            .cmp-pickers { flex-direction: column; align-items: stretch; gap: .75rem; }
+            .cmp-picker-grp { width: 100%; }
       .cmp-sel { min-width: 0; width: 100%; }
+            .cmp-vs { align-self: center; padding-bottom: 0; }
+            .cmp-executive-summary { grid-template-columns: 1fr; }
+            .cmp-summary-meta { grid-column: 1; }
+            .cmp-detail-intro { flex-direction: column; gap: .15rem; }
+            .cmp-disclosure { display: none; }
+            .section { padding: 1.25rem 1.1rem 1rem; border-radius: 12px; }
+            .section h2 { font-size: 1.25rem; }
+    }
+
+    @media print {
+      .section-nav { display: none; }
+      .section { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; page-break-inside: avoid; }
     }
   </style>
 </head>
@@ -1557,6 +1925,23 @@ function Write-ExecutiveHtmlReport {
     </div>
   </header>
 
+  <nav class="section-nav" aria-label="Section navigation">
+    <div class="section-nav-inner">
+      <a href="#adoption" data-target="adoption">Overview</a>
+      <a href="#not-checked-section" data-target="not-checked-section">Not Checked</a>
+      <a href="#top-remediations" data-target="top-remediations">Top Actions</a>
+      <a href="#hot-spots" data-target="hot-spots">Hot Spots</a>
+      <a href="#organization" data-target="organization">Organization</a>
+      <a href="#project-results" data-target="project-results">Projects</a>
+      <a href="#comparison-section" data-target="comparison-section">Run Comparison</a>
+      <span class="section-nav-resources">
+        <a class="nav-external" href="https://microsoft.github.io/adoqr/controls.html"
+           target="_blank" rel="noopener noreferrer"
+           aria-label="Open the full controls reference in a new tab">Controls reference</a>
+      </span>
+    </div>
+  </nav>
+
   <main id="main" class="container">
 
     <!-- KPI Cards -->
@@ -1574,13 +1959,14 @@ function Write-ExecutiveHtmlReport {
         <div class="card-label">Improvement Opportunities</div>
       </div>
       <div class="card card-nc" role="listitem">
-        <div class="card-value">$totalNC</div>
+                <div class="card-value" title="Controls that need more context, permissions, configuration data, or manual confirmation before a PASS/FAIL determination.">$totalNC</div>
         <div class="card-label">Not Checked</div>
       </div>
     </div>
 
     <!-- Adoption Ring -->
-    <section class="section" aria-label="Best practice adoption overview">
+    <section class="section section-accent-pass" id="adoption" aria-label="Best practice adoption overview">
+      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Overview</p>
       <h2>Best Practice Adoption</h2>
       <div class="ring-container">
         <div class="ring" role="img" aria-label="$passPct percent of best practices adopted">
@@ -1602,6 +1988,8 @@ function Write-ExecutiveHtmlReport {
         </div>
       </div>
     </section>
+
+    $notCheckedHtml
 
     <!-- Priority Remediation Actions -->
     $(if ($TopRemediations -and $TopRemediations.Count -gt 0) {
@@ -1632,7 +2020,8 @@ function Write-ExecutiveHtmlReport {
 "@)
         }
     @"
-    <section class="section" aria-label="Top remediation actions">
+    <section class="section section-accent-fail" id="top-remediations" aria-label="Top remediation actions">
+      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Top actions</p>
       <h2>Top 5 Remediation Actions</h2>
       <p style="color:var(--text2);margin-bottom:1rem">Adopting these 5 actions addresses <strong style="color:var(--text)">$top5Count</strong> of <strong style="color:var(--text)">$totalRemedIssues</strong> total items (<strong style="color:var(--text)">${top5Pct}%</strong>).
         <a href="$remedFileName">View full remediation plan &rarr;</a></p>
@@ -1646,7 +2035,8 @@ function Write-ExecutiveHtmlReport {
     <!-- Priority Actions by Project -->
     $(if ($topFailProjects.Count -gt 0) {
     @"
-    <section class="section" aria-label="Priority actions by project">
+    <section class="section section-accent-warn" id="hot-spots" aria-label="Priority actions by project">
+      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Hot spots</p>
       <h2>Projects With Improvement Opportunities</h2>
       <ol class="action-list">
         $($topFailHtml.ToString())
@@ -1656,7 +2046,8 @@ function Write-ExecutiveHtmlReport {
     })
 
     <!-- Organization -->
-    <section class="section" aria-label="Organization review">
+    <section class="section section-accent-accent" id="organization" aria-label="Organization review">
+      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Organization</p>
       <h2>Organization Review</h2>
       <div class="org-summary">
         <div>
@@ -1674,7 +2065,8 @@ function Write-ExecutiveHtmlReport {
     </section>
 
     <!-- Project Table -->
-    <section class="section" aria-label="Project results">
+    <section class="section section-accent-accent" id="project-results" aria-label="Project results">
+      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Projects</p>
       <h2>Project Results</h2>
       <div class="tbl-wrap">
         <table>
@@ -1703,7 +2095,62 @@ function Write-ExecutiveHtmlReport {
   <footer>
     <p>Generated by <strong>invoke-adoqr.ps1</strong> on $date</p>
     <p>Detailed findings are available in the linked Markdown reports.</p>
+    <p>Reference: <a href="https://microsoft.github.io/adoqr/controls.html" target="_blank" rel="noopener noreferrer">https://microsoft.github.io/adoqr/controls.html</a></p>
   </footer>
+
+  <script>
+    (function () {
+      var nav = document.querySelector('.section-nav');
+      if (!nav) { return; }
+      var links = Array.prototype.slice.call(nav.querySelectorAll('a[data-target]'));
+      // Hide jump-links whose target section is not rendered on this page
+      links = links.filter(function (a) {
+        var id = a.getAttribute('data-target');
+        var el = id ? document.getElementById(id) : null;
+        if (!el) { a.style.display = 'none'; return false; }
+        a.__section = el;
+        return true;
+      });
+      if (links.length === 0) { nav.style.display = 'none'; return; }
+      if (!('IntersectionObserver' in window)) { return; }
+      var byId = {};
+      links.forEach(function (a) { byId[a.__section.id] = a; });
+      var visible = {};
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          visible[entry.target.id] = entry.isIntersecting ? entry.intersectionRatio : 0;
+        });
+        var bestId = null, bestRatio = 0;
+        Object.keys(visible).forEach(function (id) {
+          if (visible[id] > bestRatio) { bestRatio = visible[id]; bestId = id; }
+        });
+        links.forEach(function (a) { a.classList.toggle('is-active', a.__section.id === bestId); });
+      }, { rootMargin: '-80px 0px -55% 0px', threshold: [0, 0.25, 0.5, 1] });
+      links.forEach(function (a) { observer.observe(a.__section); });
+    }());
+
+    // Auto-open all <details> for printing, restore prior state after
+    (function () {
+      function setAll(open) {
+        document.querySelectorAll('details').forEach(function (d) {
+          if (open) {
+            if (!d.hasAttribute('data-adoqr-prior')) {
+              d.setAttribute('data-adoqr-prior', d.open ? '1' : '0');
+            }
+            d.open = true;
+          } else {
+            var prior = d.getAttribute('data-adoqr-prior');
+            if (prior !== null) {
+              d.open = prior === '1';
+              d.removeAttribute('data-adoqr-prior');
+            }
+          }
+        });
+      }
+      window.addEventListener('beforeprint', function () { setAll(true); });
+      window.addEventListener('afterprint', function () { setAll(false); });
+    }());
+  </script>
 </body>
 </html>
 "@

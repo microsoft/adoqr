@@ -282,6 +282,26 @@ Describe 'Build-ComparisonSectionHtml' {
         $html | Should -Match 'id="comparison-section"'
     }
 
+    It 'includes executive summary and collapsible detail affordances' {
+        $run1 = [PSCustomObject]@{
+            runId       = 'myorg-2026-05-01-090000'
+            generatedAt = '2026-05-01T09:00:00Z'
+            summary     = [PSCustomObject]@{ pass = 1; fail = 0; notChecked = 0 }
+            controls    = @(New-ScanControl 'AUTH-01' 'PASS')
+        }
+        $run2 = [PSCustomObject]@{
+            runId       = 'myorg-2026-04-01-090000'
+            generatedAt = '2026-04-01T09:00:00Z'
+            summary     = [PSCustomObject]@{ pass = 0; fail = 1; notChecked = 0 }
+            controls    = @(New-ScanControl 'AUTH-01' 'FAIL')
+        }
+        $html = Build-ComparisonSectionHtml -RunsData @($run1, $run2)
+        $html | Should -Match 'cmp-executive-summary'
+        $html | Should -Match 'Detailed movement'
+        $html | Should -Match '<details class="cmp-group"'
+        $html | Should -Match '<summary class="cmp-group-hdr">'
+    }
+
     It 'produces valid JSON in the embedded script tag' {
         $run1 = [PSCustomObject]@{
             runId       = 'myorg-2026-05-01-090000'

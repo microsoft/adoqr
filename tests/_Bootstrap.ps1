@@ -25,6 +25,8 @@ $wantedFns = @(
     'Import-ScanRunFromMarkdownReports'
     'Get-PriorScanRuns'
     'Build-ComparisonSectionHtml'
+    'Get-NotCheckedReasonCategory'
+    'Build-NotCheckedSectionHtml'
     'Import-AdoqrSettings'
 )
 
