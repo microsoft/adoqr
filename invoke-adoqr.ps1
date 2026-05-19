@@ -87,6 +87,14 @@ $script:BroadGroups = @(
     'Contributors', 'Project Valid Users', 'Project Collection Valid Users',
     'Build Administrators', 'Endpoint Administrators'
 )
+# Additional groups treated as "broad" for ACL-based checks (PERM-*) but
+# excluded from the feed-permission BroadGroups list because they routinely
+# need feed Reader access.
+$script:BroadAclExtras = @(
+    'Build Service',
+    'Project Collection Build Service',
+    'Project Collection Service Accounts'
+)
 $script:ProductionKeywords = @('prod', 'production', 'prd', 'live', 'release')
 
 #endregion
@@ -361,6 +369,270 @@ function Get-SafeProperty {
     if ($null -eq $Object) { return $null }
     if ($Object.PSObject.Properties[$Property]) { return $Object.$Property }
     return $null
+}
+
+function Get-AdoSecurityNamespaces {
+    <#
+    .SYNOPSIS
+        Returns all ADO security namespaces, cached per scan.
+    .DESCRIPTION
+        Each namespace describes a resource type's permission bit layout
+        (actions[].bit, actions[].name, actions[].displayName). The response
+        is several KB and identical for the lifetime of a scan, so we cache
+        it in $script:SecurityNamespaceCache.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$OrgUrl,
+        [Parameter(Mandatory)][hashtable]$Header
+    )
+    if (-not $script:SecurityNamespaceCache) {
+        $resp = Invoke-AdoApi -Uri "$OrgUrl/_apis/securitynamespaces?api-version=7.1" -Header $Header
+        if ($resp -and $resp.value) {
+            $script:SecurityNamespaceCache = @($resp.value)
+        } else {
+            $script:SecurityNamespaceCache = @()
+        }
+    }
+    return $script:SecurityNamespaceCache
+}
+
+function Get-AdoNamespaceByName {
+    <#
+    .SYNOPSIS
+        Returns a single namespace by its 'name' field (e.g. 'Build',
+        'ReleaseManagement', 'Git Repositories', 'Library', 'ServiceEndpoints',
+        'Environment'). Returns the most-recently-defined match when multiple
+        namespaces share a name (e.g. ReleaseManagement legacy + current).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$OrgUrl,
+        [Parameter(Mandatory)][hashtable]$Header,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $namespaces = Get-AdoSecurityNamespaces -OrgUrl $OrgUrl -Header $Header
+    $matched = @()
+    foreach ($ns in $namespaces) {
+        $nsName = Get-SafeProperty $ns 'name'
+        if ($nsName -ieq $Name) { $matched += $ns }
+    }
+    if ($matched.Count -eq 0) { return $null }
+    if ($matched.Count -eq 1) { return $matched[0] }
+    # When multiple namespaces share a name (e.g. legacy + current
+    # ReleaseManagement), prefer the one with the richest actions[] schema.
+    # The canonical namespace tends to expose more action bits than its
+    # deprecated counterpart, and ACLs are populated against the canonical
+    # one.
+    $best = $null
+    $bestCount = -1
+    foreach ($m in $matched) {
+        $acts = Get-SafeProperty $m 'actions'
+        $count = if ($acts) { @($acts).Count } else { 0 }
+        if ($count -gt $bestCount) {
+            $best = $m
+            $bestCount = $count
+        }
+    }
+    if ($best) { return $best }
+    return $matched[-1]
+}
+
+function Get-AdoAccessControlList {
+    <#
+    .SYNOPSIS
+        Returns the ACL entries for a security namespace + token.
+    .DESCRIPTION
+        Calls /_apis/accesscontrollists/{nsId}?token={token}&includeExtendedInfo=true.
+        Response includes acesDictionary keyed by identity descriptor, with
+        allow/deny bitmasks and extendedInfo.effectiveAllow/effectiveDeny
+        for inheritance-aware values.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$OrgUrl,
+        [Parameter(Mandatory)][hashtable]$Header,
+        [Parameter(Mandatory)][string]$NamespaceId,
+        [Parameter(Mandatory)][string]$Token,
+        [switch]$Recurse
+    )
+    $encToken = [uri]::EscapeDataString($Token)
+    $recurseStr = if ($Recurse) { 'true' } else { 'false' }
+    $uri = "$OrgUrl/_apis/accesscontrollists/$NamespaceId" + "?token=$encToken&includeExtendedInfo=true&recurse=$recurseStr&api-version=7.1"
+    return Invoke-AdoApi -Uri $uri -Header $Header
+}
+
+function Get-AdoIdentitiesByDescriptors {
+    <#
+    .SYNOPSIS
+        Bulk-resolves identity descriptors to displayName via the vssps
+        identities endpoint. Caches per-descriptor in
+        $script:IdentityDescriptorCache (including negative lookups).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$OrgUrl,
+        [Parameter(Mandatory)][hashtable]$Header,
+        [Parameter(Mandatory)][string[]]$Descriptors
+    )
+    if (-not $script:IdentityDescriptorCache) { $script:IdentityDescriptorCache = @{} }
+
+    $unresolved = @(
+        $Descriptors |
+            Where-Object { $_ -and -not $script:IdentityDescriptorCache.ContainsKey($_) } |
+            Select-Object -Unique
+    )
+    if ($unresolved.Count -gt 0) {
+        $vsspsBase = if ($script:VsspsUrl) { $script:VsspsUrl } else { $OrgUrl -replace '://dev\.azure\.com/', '://vssps.dev.azure.com/' }
+        for ($i = 0; $i -lt $unresolved.Count; $i += 100) {
+            $end = [Math]::Min($i + 99, $unresolved.Count - 1)
+            $batch = $unresolved[$i..$end]
+            $descList = ($batch | ForEach-Object { [uri]::EscapeDataString($_) }) -join ','
+            $resp = Invoke-AdoApi -Uri "$vsspsBase/_apis/identities?descriptors=$descList&api-version=7.1" -Header $Header
+            $found = @{}
+            if ($resp -and $resp.value) {
+                foreach ($id in $resp.value) {
+                    $desc = Get-SafeProperty $id 'descriptor'
+                    if ($desc) {
+                        $script:IdentityDescriptorCache[$desc] = $id
+                        $found[$desc] = $true
+                    }
+                }
+            }
+            foreach ($d in $batch) {
+                if (-not $found.ContainsKey($d)) {
+                    $script:IdentityDescriptorCache[$d] = $null
+                }
+            }
+        }
+    }
+
+    $result = @{}
+    foreach ($d in $Descriptors) {
+        if ($d) { $result[$d] = $script:IdentityDescriptorCache[$d] }
+    }
+    return $result
+}
+
+function Get-AceElevatedActions {
+    <#
+    .SYNOPSIS
+        Decodes an ACE allow bitmask against a namespace's actions[] table
+        and returns the elevated action displayNames granted.
+    .DESCRIPTION
+        Excludes pure read/view bits ('View*', 'Read*', 'Generic*Read') —
+        we only flag bits that would let a broader group mutate, queue,
+        use, or administer the resource.
+    #>
+    param(
+        $Namespace,
+        [int]$AllowMask,
+        [string[]]$RequiredActionNames
+    )
+    $elevated = [System.Collections.Generic.List[string]]::new()
+    if (-not $Namespace -or $AllowMask -le 0) { return $elevated }
+    $actions = Get-SafeProperty $Namespace 'actions'
+    if (-not $actions) { return $elevated }
+    foreach ($act in $actions) {
+        $bit = Get-SafeProperty $act 'bit'
+        $name = Get-SafeProperty $act 'name'
+        $display = Get-SafeProperty $act 'displayName'
+        if (-not $display) { $display = $name }
+        if ($null -eq $bit -or -not $name) { continue }
+        if ($RequiredActionNames -and $RequiredActionNames.Count -gt 0) {
+            if ($RequiredActionNames -notcontains $name) { continue }
+        } else {
+            # Default: exclude pure read/view bits.
+            if ($name -imatch '^(View|Read|GenericRead)') { continue }
+        }
+        if (($AllowMask -band [int]$bit) -ne 0) {
+            $elevated.Add($display)
+        }
+    }
+    return $elevated
+}
+
+function Test-IsBroadGroupForAcl {
+    <#
+    .SYNOPSIS
+        Like Test-IsBroadGroup, but also matches build/service-account
+        identity names that show up in ACL ACEs but are intentionally
+        excluded from the feed-permission BroadGroups list.
+    #>
+    param([string]$GroupName)
+    if (-not $GroupName) { return $false }
+    if (Test-IsBroadGroup $GroupName) { return $true }
+    foreach ($g in $script:BroadAclExtras) {
+        if ($GroupName -ilike "*$g*") { return $true }
+    }
+    return $false
+}
+
+function Find-BroadGroupAclOffenders {
+    <#
+    .SYNOPSIS
+        For a (namespaceName, token) tuple, returns the list of broader-group
+        ACEs that hold elevated allow bits at that scope.
+    .OUTPUTS
+        $null  -> namespace or ACL could not be retrieved (caller emits NOT CHECKED)
+        @()    -> no offenders (caller emits PASS)
+        array  -> "DisplayName: action1, action2" strings (caller emits FAIL)
+    #>
+    param(
+        [Parameter(Mandatory)][string]$OrgUrl,
+        [Parameter(Mandatory)][hashtable]$Header,
+        [Parameter(Mandatory)][string]$NamespaceName,
+        [Parameter(Mandatory)][string]$Token,
+        [string[]]$RequiredActionNames
+    )
+
+    $ns = Get-AdoNamespaceByName -OrgUrl $OrgUrl -Header $Header -Name $NamespaceName
+    if (-not $ns) { return $null }
+    $nsId = Get-SafeProperty $ns 'namespaceId'
+    if (-not $nsId) { return $null }
+
+    $aclResp = Get-AdoAccessControlList -OrgUrl $OrgUrl -Header $Header -NamespaceId $nsId -Token $Token
+    if (-not $aclResp) { return $null }
+    if (-not $aclResp.value -or @($aclResp.value).Count -eq 0) { return ,@() }
+
+    $allDescriptors = [System.Collections.Generic.List[string]]::new()
+    foreach ($acl in $aclResp.value) {
+        $aces = Get-SafeProperty $acl 'acesDictionary'
+        if ($aces) {
+            foreach ($prop in $aces.PSObject.Properties) { [void]$allDescriptors.Add($prop.Name) }
+        }
+    }
+    if ($allDescriptors.Count -eq 0) { return ,@() }
+
+    $identityMap = Get-AdoIdentitiesByDescriptors -OrgUrl $OrgUrl -Header $Header -Descriptors $allDescriptors.ToArray()
+
+    $offenders = [System.Collections.Generic.List[string]]::new()
+    foreach ($acl in $aclResp.value) {
+        $aces = Get-SafeProperty $acl 'acesDictionary'
+        if (-not $aces) { continue }
+        foreach ($prop in $aces.PSObject.Properties) {
+            $desc = $prop.Name
+            $ace = $prop.Value
+            $identity = $identityMap[$desc]
+            if (-not $identity) { continue }
+            $displayName = Get-SafeProperty $identity 'providerDisplayName'
+            if (-not $displayName) { $displayName = Get-SafeProperty $identity 'displayName' }
+            if (-not $displayName) { continue }
+            if (-not (Test-IsBroadGroupForAcl $displayName)) { continue }
+            $effAllow = 0
+            $extInfo = Get-SafeProperty $ace 'extendedInfo'
+            if ($extInfo) {
+                $ea = Get-SafeProperty $extInfo 'effectiveAllow'
+                if ($null -ne $ea) { $effAllow = [int]$ea }
+            }
+            if ($effAllow -eq 0) {
+                $a = Get-SafeProperty $ace 'allow'
+                if ($null -ne $a) { $effAllow = [int]$a }
+            }
+            if ($effAllow -eq 0) { continue }
+            $elevated = Get-AceElevatedActions -Namespace $ns -AllowMask $effAllow -RequiredActionNames $RequiredActionNames
+            if ($elevated.Count -gt 0) {
+                $offenders.Add(("{0}: {1}" -f $displayName, ($elevated -join ', ')))
+            }
+        }
+    }
+    return ,$offenders.ToArray()
 }
 
 function Test-IsGuestMember {
@@ -3180,26 +3452,81 @@ function Test-ProjectSettings {
         $results.Add((New-ControlResult -Id "PROJ-17" -Status "NOT CHECKED" -Severity "Low" -Control "Badge API Access" -Finding "Could not determine badge API setting."))
     }
 
-    # PERM-01 through PERM-08: Project-level inherited permissions for broad groups
-    foreach ($permId in @("PERM-01","PERM-02","PERM-03","PERM-04","PERM-05","PERM-06","PERM-07","PERM-08")) {
-        $resourceName = switch ($permId) {
-            "PERM-01" { "Build Pipeline" }
-            "PERM-02" { "Release Pipeline" }
-            "PERM-03" { "Service Connection" }
-            "PERM-04" { "Agent Pool" }
-            "PERM-05" { "Variable Group" }
-            "PERM-06" { "Repository" }
-            "PERM-07" { "Secure File" }
-            "PERM-08" { "Environment" }
+    # PERM-01 through PERM-08: Broader-group permissions at project default scope
+    # for each pipeline-related resource type. We query the relevant security
+    # namespace's ACL at the project-default token, resolve each ACE descriptor
+    # to a display name, and FAIL the control if any "broad" group (Contributors,
+    # Project Valid Users, Project Collection Valid Users, Build Service, etc.)
+    # holds elevated allow bits (anything beyond pure View/Read).
+    #
+    # PERM-04 (Agent Pool) and PERM-08 (Environment) stay NOT CHECKED here
+    # because they require per-pool / per-environment ACL enumeration that
+    # doesn't fit the single project-default-token pattern; those are tracked
+    # for Phase 2b.
+
+    $projectIdForAcl = if ($projectInfo) { $projectInfo.id } else { $null }
+
+    $permAclChecks = @(
+        @{ Id = 'PERM-01'; NamespaceName = 'Build';             Control = 'Build Pipeline Inherited Permissions';   Action = "Project Settings > Pipelines > Builds > Security"; TokenBuilder = { param($projId) $projId } }
+        @{ Id = 'PERM-02'; NamespaceName = 'ReleaseManagement'; Control = 'Release Pipeline Inherited Permissions'; Action = "Project Settings > Pipelines > Releases > Security"; TokenBuilder = { param($projId) $projId } }
+        @{ Id = 'PERM-03'; NamespaceName = 'ServiceEndpoints';  Control = 'Service Connection Inherited Permissions'; Action = "Project Settings > Service Connections > Security"; TokenBuilder = { param($projId) "endpoints/$projId" } }
+        @{ Id = 'PERM-05'; NamespaceName = 'Library';           Control = 'Variable Group Inherited Permissions';   Action = "Pipelines > Library > Security"; TokenBuilder = { param($projId) "Library/$projId" } }
+        @{ Id = 'PERM-06'; NamespaceName = 'Git Repositories';  Control = 'Repository Inherited Permissions';       Action = "Project Settings > Repositories > Security"; TokenBuilder = { param($projId) "repoV2/$projId" } }
+        @{ Id = 'PERM-07'; NamespaceName = 'Library';           Control = 'Secure File Inherited Permissions';      Action = "Pipelines > Library > Secure files > Security"; TokenBuilder = { param($projId) "Library/$projId" } }
+    )
+
+    foreach ($chk in $permAclChecks) {
+        if (-not $projectIdForAcl) {
+            $results.Add((New-ControlResult -Id $chk.Id -Status "NOT CHECKED" -Severity "High" -Control $chk.Control -Finding "Project ID unavailable; ACL probe skipped."))
+            continue
         }
-        $results.Add((New-ControlResult -Id $permId -Status "NOT CHECKED" -Severity "High" -Control "$resourceName Inherited Permissions" -Finding "Requires querying security namespaces for broad group permissions at project level. Manual review recommended."))
+        $token = & $chk.TokenBuilder $projectIdForAcl
+        try {
+            $offenders = Find-BroadGroupAclOffenders -OrgUrl $OrgUrl -Header $Header -NamespaceName $chk.NamespaceName -Token $token
+        } catch {
+            $offenders = $null
+        }
+        if ($null -eq $offenders) {
+            $results.Add((New-ControlResult -Id $chk.Id -Status "NOT CHECKED" -Severity "High" -Control $chk.Control -Finding "Could not retrieve ACL for namespace '$($chk.NamespaceName)' at token '$token'."))
+        } elseif ($offenders.Count -eq 0) {
+            $results.Add((New-ControlResult -Id $chk.Id -Status "PASS" -Severity "High" -Control $chk.Control -Finding "No broader group holds elevated permissions at the project default scope."))
+        } else {
+            $list = ($offenders | Select-Object -First 5) -join '; '
+            $more = if ($offenders.Count -gt 5) { " (+$($offenders.Count - 5) more)" } else { "" }
+            $results.Add((New-ControlResult -Id $chk.Id -Status "FAIL" -Severity "High" -Control $chk.Control -Finding "$($offenders.Count) broader-group ACE(s) hold elevated permissions: $list$more. Restrict via $($chk.Action)."))
+        }
     }
 
-    # PERM-09: Project-level "Create repository" permission
-    # The Git Repositories security namespace exposes the "CreateRepository"
-    # bit, but enumerating effective permissions per group is a multi-step
-    # ACL query. Surface as a manual-review control with clear guidance.
-    $results.Add((New-ControlResult -Id "PERM-09" -Status "NOT CHECKED" -Severity "Medium" -Control "Repository Creation Permission" -Finding "Manual review required. In Project Settings > Repositories > Security, confirm only trusted groups (e.g. Project Administrators) have the 'Create repository' permission set to Allow."))
+    # PERM-04: Agent Pool — per-pool ACL enumeration deferred to Phase 2b.
+    $results.Add((New-ControlResult -Id "PERM-04" -Status "NOT CHECKED" -Severity "High" -Control "Agent Pool Inherited Permissions" -Finding "Requires per-pool ACL enumeration against the DistributedTask namespace; not yet automated. Manually review Project Settings > Agent pools > Security for each pool to confirm no broader group has Use/Manage/Administer."))
+
+    # PERM-08: Environment — per-environment ACL enumeration deferred to Phase 2b.
+    $results.Add((New-ControlResult -Id "PERM-08" -Status "NOT CHECKED" -Severity "High" -Control "Environment Inherited Permissions" -Finding "Requires per-environment ACL enumeration against the Environment namespace; not yet automated. Manually review Pipelines > Environments > Security for each environment to confirm no broader group has Use/Manage/Administer."))
+
+    # PERM-09: Project-level "Create repository" permission. Probe the Git
+    # Repositories namespace at the project-root token and look specifically
+    # for the CreateRepository action bit being allowed to any broader group.
+    if ($projectIdForAcl) {
+        $createRepoOffenders = $null
+        $perm09Err = $null
+        try {
+            $createRepoOffenders = Find-BroadGroupAclOffenders -OrgUrl $OrgUrl -Header $Header -NamespaceName 'Git Repositories' -Token "repoV2/$projectIdForAcl" -RequiredActionNames @('CreateRepository')
+        } catch {
+            $perm09Err = $_.Exception.Message
+            $createRepoOffenders = $null
+        }
+        if ($null -eq $createRepoOffenders) {
+            $detail = if ($perm09Err) { "Could not retrieve Git Repositories ACL for project root ($perm09Err)." } else { "Could not retrieve Git Repositories ACL for project root." }
+            $results.Add((New-ControlResult -Id "PERM-09" -Status "NOT CHECKED" -Severity "Medium" -Control "Repository Creation Permission" -Finding $detail))
+        } elseif ($createRepoOffenders.Count -eq 0) {
+            $results.Add((New-ControlResult -Id "PERM-09" -Status "PASS" -Severity "Medium" -Control "Repository Creation Permission" -Finding "No broader group has 'Create repository' allowed at project scope."))
+        } else {
+            $list = ($createRepoOffenders | Select-Object -First 5) -join '; '
+            $results.Add((New-ControlResult -Id "PERM-09" -Status "FAIL" -Severity "Medium" -Control "Repository Creation Permission" -Finding "$($createRepoOffenders.Count) broader-group ACE(s) granted 'Create repository': $list. Restrict via Project Settings > Repositories > Security."))
+        }
+    } else {
+        $results.Add((New-ControlResult -Id "PERM-09" -Status "NOT CHECKED" -Severity "Medium" -Control "Repository Creation Permission" -Finding "Project ID unavailable; CreateRepository ACL probe skipped."))
+    }
 
     return $results
 }
@@ -3404,6 +3731,18 @@ function Test-ReleasePipelines {
             $settable = @($defVars.PSObject.Properties | Where-Object { (Get-SafeProperty $_.Value 'allowOverride') -eq $true })
             if ($settable.Count -gt 0) {
                 $results.Add((New-ControlResult -Id "REL-08" -Status "FAIL" -Severity "High" -Control "Settable Variables at Release Time" -Finding "$prefix — $($settable.Count) variable(s) settable at release time. Review necessity."))
+            }
+        }
+
+        # REL-09: Release job authorization scope
+        # Parallel to BUILD-11 — guards against the release identity reaching
+        # resources in other projects across the same collection.
+        $defAuthScope = Get-SafeProperty $def 'jobAuthorizationScope'
+        if ($defAuthScope) {
+            if ($defAuthScope -ieq 'projectCollection') {
+                $results.Add((New-ControlResult -Id "REL-09" -Status "FAIL" -Severity "Medium" -Control "Release Authorization Scope" -Finding "$prefix — Authorization scope is '$defAuthScope' (project-collection). Set to 'Current project' so the release identity cannot reach resources in other projects."))
+            } else {
+                $results.Add((New-ControlResult -Id "REL-09" -Status "PASS" -Severity "Medium" -Control "Release Authorization Scope" -Finding "$prefix — Authorization scope is '$defAuthScope'."))
             }
         }
     }
@@ -3745,6 +4084,51 @@ function Test-Repositories {
         }
     }
 
+    # === PER-REPO REPOSITORY POLICIES (REPO-06, REPO-07) ===
+    # Granular per-repo equivalents of PROJ-14 (credential scanner) and
+    # PROJ-15 (commit author email validation). The project-level checks
+    # PASS when the policy exists anywhere in the project; REPO-06/07
+    # confirm it is actually enabled for each repo's default branch.
+    $repoPolicyTypes = @(
+        @{ Id = 'REPO-06'; NamePattern = 'credential|secret|push protection'; Severity = 'High';   Control = 'Per-Repository Credentials & Secrets Policy'; Action = "Enable GHAzDO push-protection or a credential-scanner policy scoped to this repo's default branch." }
+        @{ Id = 'REPO-07'; NamePattern = 'commit author email';               Severity = 'Medium'; Control = 'Per-Repository Author Email Validation';      Action = "Enable the 'Commit author email validation' branch policy on this repo's default branch via Project Settings > Repos > Policies." }
+    )
+
+    foreach ($rp in $repoPolicyTypes) {
+        $candidates = [System.Collections.Generic.List[PSCustomObject]]::new()
+        foreach ($entry in $policiesByNamePattern) {
+            if ($entry.Name -imatch $rp.NamePattern) { $candidates.Add($entry.Policy) }
+        }
+
+        $missing      = [System.Collections.Generic.List[string]]::new()
+        $reposChecked = 0
+        foreach ($repo in $repos) {
+            $defaultBranch = Get-SafeProperty $repo 'defaultBranch'
+            if (-not $defaultBranch) { continue }
+            $reposChecked++
+
+            $applied = $false
+            foreach ($p in $candidates) {
+                if (Test-PolicyAppliesToBranch -Policy $p -RepoId $repo.id -RefName $defaultBranch) {
+                    $applied = $true
+                    break
+                }
+            }
+            if (-not $applied) { $missing.Add($repo.name) }
+        }
+
+        if ($reposChecked -eq 0) {
+            $results.Add((New-ControlResult -Id $rp.Id -Status 'NOT CHECKED' -Severity $rp.Severity -Control $rp.Control -Finding 'No repositories with a default branch were found to evaluate.'))
+        }
+        elseif ($missing.Count -eq 0) {
+            $results.Add((New-ControlResult -Id $rp.Id -Status 'PASS' -Severity $rp.Severity -Control $rp.Control -Finding "All $reposChecked repository default branch(es) have the policy enabled."))
+        }
+        else {
+            $missList = ($missing | Select-Object -First 10) -join ', '
+            $results.Add((New-ControlResult -Id $rp.Id -Status 'FAIL' -Severity $rp.Severity -Control $rp.Control -Finding "$($missing.Count)/$reposChecked repository default branch(es) missing the policy: $missList. $($rp.Action)"))
+        }
+    }
+
     # === COMMUNITY FILES (REPO-03..05) ===
     # Check default-branch presence of README / CONTRIBUTING / CODE_OF_CONDUCT.
     # 404 from the items endpoint maps to $null in Invoke-AdoApi, so a missing
@@ -3901,22 +4285,67 @@ function Test-Environments {
             $results.Add((New-ControlResult -Id "ENV-01" -Status "PASS" -Severity "High" -Control "Not Accessible to All YAML Pipelines" -Finding "$prefix — Not accessible to all pipelines."))
         }
 
-        # ENV-03: Production approvals
+        # ENV-03/04/05: Production environment posture
+        # ENV-03 — approval check present
+        # ENV-04 — effective required approvers >= 2 (uses minRequiredApprovers
+        #          when set; otherwise approver-list count, since 0 means
+        #          "all listed approvers must approve")
+        # ENV-05 — branch-control check restricts deployments to a protected
+        #          branch (surfaces as a Task Check with a definitionRef of
+        #          'evaluatebranchProtection' or a displayName containing
+        #          'branch control')
         if (Test-IsProductionStage $envName) {
             $envDetail = Invoke-AdoApi -Uri "$OrgUrl/$ProjectName/_apis/distributedtask/environments/${envId}?expands=checks&api-version=7.1-preview.1" -Header $Header
-            $hasApproval = $false
+            $approvalCheck    = $null
+            $hasBranchControl = $false
             if ($envDetail -and $envDetail.checks) {
                 foreach ($check in $envDetail.checks) {
-                    if ($check.type.name -imatch 'approval') {
-                        $hasApproval = $true
-                        break
+                    $checkTypeName = Get-SafeProperty (Get-SafeProperty $check 'type') 'name'
+                    if (-not $approvalCheck -and $checkTypeName -and $checkTypeName -imatch 'approval') {
+                        $approvalCheck = $check
+                    }
+                    if (-not $hasBranchControl) {
+                        $settingsObj  = Get-SafeProperty $check 'settings'
+                        $defRefObj    = Get-SafeProperty $settingsObj 'definitionRef'
+                        $defRefName   = Get-SafeProperty $defRefObj 'name'
+                        $displayName  = Get-SafeProperty $settingsObj 'displayName'
+                        if (($defRefName -and $defRefName -imatch 'branch') -or ($displayName -and $displayName -imatch 'branch control')) {
+                            $hasBranchControl = $true
+                        }
                     }
                 }
             }
-            if ($hasApproval) {
+
+            # ENV-03
+            if ($approvalCheck) {
                 $results.Add((New-ControlResult -Id "ENV-03" -Status "PASS" -Severity "High" -Control "Production Approvals" -Finding "$prefix — Approval checks configured."))
             } else {
                 $results.Add((New-ControlResult -Id "ENV-03" -Status "FAIL" -Severity "High" -Control "Production Approvals" -Finding "$prefix — No approval checks on production environment. Add approval checks."))
+            }
+
+            # ENV-04
+            if ($approvalCheck) {
+                $approvalSettings = Get-SafeProperty $approvalCheck 'settings'
+                $approvers        = @(Get-SafeProperty $approvalSettings 'approvers')
+                $approverCount    = ($approvers | Where-Object { $_ } | Measure-Object).Count
+                $minRequiredRaw   = Get-SafeProperty $approvalSettings 'minRequiredApprovers'
+                $minRequired      = 0
+                if ($null -ne $minRequiredRaw) { [int]::TryParse([string]$minRequiredRaw, [ref]$minRequired) | Out-Null }
+                $effectiveRequired = if ($minRequired -gt 0) { $minRequired } else { $approverCount }
+                if ($effectiveRequired -ge 2) {
+                    $results.Add((New-ControlResult -Id "ENV-04" -Status "PASS" -Severity "High" -Control "Multiple Approvers on Production" -Finding "$prefix — Effective required approvers: $effectiveRequired (approvers configured: $approverCount, minRequired: $minRequired)."))
+                } else {
+                    $results.Add((New-ControlResult -Id "ENV-04" -Status "FAIL" -Severity "High" -Control "Multiple Approvers on Production" -Finding "$prefix — Only $effectiveRequired effective approver(s) (approvers configured: $approverCount, minRequired: $minRequired). Configure at least 2 distinct approvers to prevent single-point bypass."))
+                }
+            } else {
+                $results.Add((New-ControlResult -Id "ENV-04" -Status "FAIL" -Severity "High" -Control "Multiple Approvers on Production" -Finding "$prefix — No approval check exists; cannot satisfy multi-approver requirement."))
+            }
+
+            # ENV-05
+            if ($hasBranchControl) {
+                $results.Add((New-ControlResult -Id "ENV-05" -Status "PASS" -Severity "High" -Control "Branch Control on Production" -Finding "$prefix — Branch control check is configured."))
+            } else {
+                $results.Add((New-ControlResult -Id "ENV-05" -Status "FAIL" -Severity "High" -Control "Branch Control on Production" -Finding "$prefix — No Branch control check found. Add a Branch control check restricting deployments to a protected production branch."))
             }
         }
     }
@@ -4307,7 +4736,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -ge 1 -and $PSVersionTable.PSVer
     $projectCount = $projectNames.Count
     $projectWorkerBudget = 6
     $allFunctionDefs = (Get-ChildItem Function: | Where-Object {
-        $_.Name -match '^(Invoke-AdoApi|Invoke-AzCli|New-ControlResult|Test-|Get-Safe|Get-AdoGraph|Get-ControlCategory|Write-Assessment|Add-ResultsSafe)'
+        $_.Name -match '^(Invoke-AdoApi|Invoke-AzCli|New-ControlResult|Test-|Get-Safe|Get-Ado|Get-Ace|Find-BroadGroup|Get-ControlCategory|Write-Assessment|Add-ResultsSafe)'
     } | ForEach-Object {
         "function $($_.Name) {`n$($_.Definition)`n}"
     }) -join "`n`n"
@@ -4319,6 +4748,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -ge 1 -and $PSVersionTable.PSVer
         InactiveDays       = $script:InactiveDays
         InactiveRepoDays   = $script:InactiveRepoDays
         BroadGroups        = $script:BroadGroups
+        BroadAclExtras     = $script:BroadAclExtras
         ProductionKeywords = $script:ProductionKeywords
         VsspsUrl           = $script:VsspsUrl
         ExtMgmtUrl         = $script:ExtMgmtUrl
@@ -4335,6 +4765,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -ge 1 -and $PSVersionTable.PSVer
         `$script:InactiveDays       = `$cfg.InactiveDays
         `$script:InactiveRepoDays   = `$cfg.InactiveRepoDays
         `$script:BroadGroups        = `$cfg.BroadGroups
+        `$script:BroadAclExtras     = `$cfg.BroadAclExtras
         `$script:ProductionKeywords = `$cfg.ProductionKeywords
         `$script:VsspsUrl           = `$cfg.VsspsUrl
         `$script:ExtMgmtUrl         = `$cfg.ExtMgmtUrl
@@ -4352,6 +4783,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -ge 1 -and $PSVersionTable.PSVer
         $script:InactiveDays       = $cfg.InactiveDays
         $script:InactiveRepoDays   = $cfg.InactiveRepoDays
         $script:BroadGroups        = $cfg.BroadGroups
+        $script:BroadAclExtras     = $cfg.BroadAclExtras
         $script:ProductionKeywords = $cfg.ProductionKeywords
         $script:VsspsUrl           = $cfg.VsspsUrl
         $script:ExtMgmtUrl         = $cfg.ExtMgmtUrl
@@ -4410,6 +4842,7 @@ if ($MaxParallel -gt 1 -and $projectNames.Count -ge 1 -and $PSVersionTable.PSVer
         $script:InactiveDays       = $cfg.InactiveDays
         $script:InactiveRepoDays   = $cfg.InactiveRepoDays
         $script:BroadGroups        = $cfg.BroadGroups
+        $script:BroadAclExtras     = $cfg.BroadAclExtras
         $script:ProductionKeywords = $cfg.ProductionKeywords
         $script:VsspsUrl           = $cfg.VsspsUrl
         $script:ExtMgmtUrl         = $cfg.ExtMgmtUrl

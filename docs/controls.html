@@ -799,6 +799,41 @@
           </details>
         </div>
       </article>
+      <article class="control-card" id="multiple-approvers-on-production" data-name="Multiple Approvers on Production" data-id="ENV-04">
+        <h3><span class="id-badge">ENV-04</span><span class="control-name">Multiple Approvers on Production</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms each production environment requires at least two distinct approvers (or a group), preventing a single account from rubber-stamping a deployment.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Environments.</li>
+              <li>Select the production environment.</li>
+              <li>Open Approvals and checks.</li>
+              <li>Edit the Approval check.</li>
+              <li>Add at least 2 distinct approvers (users or a group) and set "Minimum number of approvers required" to 2 or higher.</li>
+              <li>Enable "Requestor should not be an approver" to prevent self-approval.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="branch-control-on-production" data-name="Branch Control on Production" data-id="ENV-05">
+        <h3><span class="id-badge">ENV-05</span><span class="control-name">Branch Control on Production</span></h3>
+        <div class="control-body">
+          <p class="description">Confirms each production environment has a Branch control check that restricts deployments to a protected production branch, preventing unintended deployments from feature branches.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project &gt; Pipelines &gt; Environments &gt; [production environment] &gt; Approvals and checks.</li>
+              <li>Click Add and select "Branch control".</li>
+              <li>Set Allowed branches to refs/heads/main (or your protected production branch).</li>
+              <li>Enable "Ensure protection of the branch" so the check also fails if branch policies are missing.</li>
+              <li>Validate by attempting a deployment from a non-allowed branch and confirming it is blocked.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
       <article class="control-card" id="extension-review" data-name="Extension Review" data-id="EXT-01">
         <h3><span class="id-badge">EXT-01</span><span class="control-name">Extension Review</span></h3>
         <div class="control-body">
@@ -1086,6 +1121,132 @@
               <li>Document an intake process for new repos.</li>
             </ol>
             <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/git/set-git-repository-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="build-pipeline-inherited-permissions" data-name="Build Pipeline Inherited Permissions" data-id="PERM-01">
+        <h3><span class="id-badge">PERM-01</span><span class="control-name">Build Pipeline Inherited Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">No broader group (Contributors, Project Valid Users, Project Collection Build Service Accounts, etc.) should hold elevated allow bits at the project-default Build ACL. The scanner reads the Build security namespace and FAILs the control when any broad group has Edit, Delete, Administer, Override check-in, or other mutating permission allowed at the project root.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open Pipelines &gt; Builds and choose Manage security (project-default Build ACL).</li>
+              <li>For each flagged broader group, set Edit / Delete / Administer / Override check-in validation to Not set or Deny.</li>
+              <li>Leave View build pipeline / View builds at Allow only where required.</li>
+              <li>Verify the flagged group can no longer modify or queue pipelines.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/policies/permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="release-pipeline-inherited-permissions" data-name="Release Pipeline Inherited Permissions" data-id="PERM-02">
+        <h3><span class="id-badge">PERM-02</span><span class="control-name">Release Pipeline Inherited Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">No broader group should hold elevated allow bits at the project-default Release ACL. The scanner reads the ReleaseManagement security namespace and FAILs when any broad group has Edit, Delete, Manage approvers, or Administer allowed at the project root.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open Pipelines &gt; Releases &gt; Security (project-default).</li>
+              <li>For each flagged broader group, set Edit / Delete / Manage approvers / Administer to Not set or Deny.</li>
+              <li>Leave View at Allow only where required.</li>
+              <li>Confirm the flagged group can no longer modify approvals or release definitions.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/policies/permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="service-connection-inherited-permissions" data-name="Service Connection Inherited Permissions" data-id="PERM-03">
+        <h3><span class="id-badge">PERM-03</span><span class="control-name">Service Connection Inherited Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">Service connections carry credentials to cloud subscriptions, container registries, and other sensitive systems. Broader groups (Contributors, Project Collection Build Service) should not hold User, Creator, or Administrator at the project-default. The scanner reads the ServiceEndpoints namespace at <code>endpoints/{projectId}</code>.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open Project Settings &gt; Service connections &gt; Security (project-default).</li>
+              <li>Remove broader groups from User, Administrator, and Creator roles.</li>
+              <li>Grant named pipeline-team groups only.</li>
+              <li>For production-grade connections, prefer per-connection roles over project-default.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="agent-pool-inherited-permissions" data-name="Agent Pool Inherited Permissions" data-id="PERM-04">
+        <h3><span class="id-badge">PERM-04</span><span class="control-name">Agent Pool Inherited Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">Agent pools execute pipeline tasks with whatever credentials the agent process holds. Broader groups should not hold Use, Manage, or Administer on a pool. This control currently surfaces as NOT CHECKED — per-pool ACL enumeration against the DistributedTask namespace is tracked for Phase 2b.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open Project Settings &gt; Agent pools.</li>
+              <li>For each pool, choose Security and remove broader groups (Contributors, Build Service) from Administrator, User, and Service Account.</li>
+              <li>Repeat at Organization Settings &gt; Agent pools for org-level pools.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/pools-queues" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="variable-group-inherited-permissions" data-name="Variable Group Inherited Permissions" data-id="PERM-05">
+        <h3><span class="id-badge">PERM-05</span><span class="control-name">Variable Group Inherited Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">Variable groups frequently hold secrets (or are linked to Key Vault). Broader groups should not hold Administrator or User at the project-default Library ACL. The scanner reads the Library namespace at <code>Library/{projectId}</code>.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open Pipelines &gt; Library &gt; Security (project-default).</li>
+              <li>For each flagged broader group, set Administrator and User to Not set.</li>
+              <li>Grant User only to the pipeline teams that consume the variable group.</li>
+              <li>For groups holding secrets, prefer Key Vault-linked variable groups with managed identity.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/variable-groups" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="repository-inherited-permissions" data-name="Repository Inherited Permissions" data-id="PERM-06">
+        <h3><span class="id-badge">PERM-06</span><span class="control-name">Repository Inherited Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">No broader group should hold elevated allow bits at the project-default Git ACL. The scanner reads the Git Repositories namespace at <code>repoV2/{projectId}</code> and flags any broad group granted Administer, Manage permissions, Force push, Remove others' locks, Edit policies, or Manage notes.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open Project Settings &gt; Repositories &gt; Security (project-default Git ACL).</li>
+              <li>For each flagged broader group, set Administer / Manage permissions / Force push / Edit policies / Manage notes to Not set or Deny.</li>
+              <li>Leave Read at Allow only where required.</li>
+              <li>Re-run adoqr to confirm the ACE no longer carries elevated bits.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/git/set-git-repository-permissions" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="secure-file-inherited-permissions" data-name="Secure File Inherited Permissions" data-id="PERM-07">
+        <h3><span class="id-badge">PERM-07</span><span class="control-name">Secure File Inherited Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">Secure files store signing certs, kubeconfigs, and other high-value artifacts. The scanner reads the Library namespace at <code>Library/{projectId}</code> (shared with variable groups) and flags any broad group with Administrator or User at the project-default.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open Pipelines &gt; Library &gt; Secure files &gt; Security (project-default).</li>
+              <li>For each flagged broader group, set Administrator and User to Not set.</li>
+              <li>For high-value secure files, pin per-file roles instead of inheriting project-default.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/library/secure-files" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="environment-inherited-permissions" data-name="Environment Inherited Permissions" data-id="PERM-08">
+        <h3><span class="id-badge">PERM-08</span><span class="control-name">Environment Inherited Permissions</span></h3>
+        <div class="control-body">
+          <p class="description">Pipeline environments gate deployments to production targets. Broader groups should not hold User, Creator, or Administrator on any environment. This control currently surfaces as NOT CHECKED — per-environment ACL enumeration is tracked for Phase 2b.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open Pipelines &gt; Environments.</li>
+              <li>For each environment, open the three-dot menu &gt; Security.</li>
+              <li>Remove broader groups from Administrator, User, and Creator roles.</li>
+              <li>Combine with Approvals and Branch control checks so a misconfigured pipeline cannot deploy to production.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/process/environments" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
           </details>
         </div>
       </article>
@@ -1407,6 +1568,23 @@
           </details>
         </div>
       </article>
+      <article class="control-card" id="release-authorization-scope" data-name="Release Authorization Scope" data-id="REL-09">
+        <h3><span class="id-badge">REL-09</span><span class="control-name">Release Authorization Scope</span></h3>
+        <div class="control-body">
+          <p class="description">Per-pipeline check ensuring each classic release pipeline's job authorization scope is set to "Current project" rather than the whole project collection — the release-side equivalent of BUILD-11.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Open the release pipeline definition.</li>
+              <li>Click the three dots &gt; Settings (Options for classic releases).</li>
+              <li>Set "Release job authorization scope" to "Current project".</li>
+              <li>Save the pipeline.</li>
+              <li>Repeat for every release pipeline flagged.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/pipelines/security/secure-access-to-repos" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
       <article class="control-card" id="inactive-repositories" data-name="Inactive Repositories" data-id="REPO-01">
         <h3><span class="id-badge">REPO-01</span><span class="control-name">Inactive Repositories</span></h3>
         <div class="control-body">
@@ -1420,6 +1598,40 @@
               <li>Consider moving to a dedicated archive project.</li>
             </ol>
             <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/git/manage-repos" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="per-repository-credentials-and-secrets-policy" data-name="Per-Repository Credentials &amp; Secrets Policy" data-id="REPO-06">
+        <h3><span class="id-badge">REPO-06</span><span class="control-name">Per-Repository Credentials &amp; Secrets Policy</span></h3>
+        <div class="control-body">
+          <p class="description">Per-repo equivalent of PROJ-14. Confirms a credential / secret push-protection policy is actually enabled on each repo's default branch (rather than just existing somewhere in the project).</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Repos &gt; Repositories.</li>
+              <li>Select the flagged repository.</li>
+              <li>Open the Policies tab.</li>
+              <li>Enable "Push protection" via GitHub Advanced Security for Azure DevOps (GHAzDO) or add a credential-scanner branch policy targeting the default branch.</li>
+              <li>Confirm the policy is enabled (not just defined) and scoped to the default branch.</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/security/github-advanced-security-secret-scanning" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
+          </details>
+        </div>
+      </article>
+      <article class="control-card" id="per-repository-author-email-validation" data-name="Per-Repository Author Email Validation" data-id="REPO-07">
+        <h3><span class="id-badge">REPO-07</span><span class="control-name">Per-Repository Author Email Validation</span></h3>
+        <div class="control-body">
+          <p class="description">Per-repo equivalent of PROJ-15. Confirms the "Commit author email validation" branch policy is actually enabled on each repo's default branch.</p>
+          <details class="steps-details">
+            <summary>Remediation steps</summary>
+            <ol>
+              <li>Navigate to Project Settings &gt; Repos &gt; Repositories.</li>
+              <li>Select the flagged repository.</li>
+              <li>Open the Policies tab.</li>
+              <li>Under Branch Policies for the default branch, turn On "Commit author email validation".</li>
+              <li>Configure the allowed email pattern (e.g. *@yourcompany.com).</li>
+            </ol>
+            <a class="doc-link" href="https://learn.microsoft.com/en-us/azure/devops/repos/git/repository-settings#commit-author-email-validation-policy" target="_blank" rel="noopener">Microsoft Learn &rarr;</a>
           </details>
         </div>
       </article>
