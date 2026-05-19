@@ -3178,31 +3178,31 @@ function Test-OrgFeeds {
     # FEED-02: Feed creation permissions — not easily checked via API
     $results.Add((New-ControlResult -Id "FEED-02" -Status "NOT CHECKED" -Severity "High" -Control "Feed Creation Permissions" -Finding "Manual review required. Check who can create feeds in Organization Settings."))
 
-    # FEED-03: External package protection — check upstream source settings on each feed
+    # FEED-03: External package protection — upstreams can't be assessed reliably via API.
+    # The real mitigation (save-to-feed / package source protection) isn't surfaced in the
+    # feed payload, so flag feeds with active upstreams as advisory rather than FAIL.
     if ($feeds -and $feeds.value -and $feeds.value.Count -gt 0) {
-        $unprotectedFeeds = [System.Collections.Generic.List[string]]::new()
+        $feedsWithUpstreams = [System.Collections.Generic.List[string]]::new()
         foreach ($feed in $feeds.value) {
             $upstreamEnabled = Get-SafeProperty $feed 'upstreamEnabled'
             $upstreamSources = Get-SafeProperty $feed 'upstreamSources'
             if ($upstreamEnabled -eq $true -and $upstreamSources) {
-                # Check if any upstream source lacks upstream protection
                 foreach ($src in $upstreamSources) {
-                    $protocol = Get-SafeProperty $src 'protocol'
                     $status = Get-SafeProperty $src 'status'
                     if ($status -ne 'disabled') {
-                        $unprotectedFeeds.Add($feed.name)
+                        $feedsWithUpstreams.Add($feed.name)
                         break
                     }
                 }
             }
         }
-        if ($unprotectedFeeds.Count -eq 0) {
-            $results.Add((New-ControlResult -Id "FEED-03" -Status "PASS" -Severity "High" -Control "External Package Protection" -Finding "All org-level feeds have upstream sources disabled or protected."))
+        if ($feedsWithUpstreams.Count -eq 0) {
+            $results.Add((New-ControlResult -Id "FEED-03" -Status "PASS" -Severity "Medium" -Control "External Package Protection" -Finding "No org-scoped feeds have active upstream sources."))
         } else {
-            $results.Add((New-ControlResult -Id "FEED-03" -Status "FAIL" -Severity "High" -Control "External Package Protection" -Finding "Feeds with active upstream sources: $($unprotectedFeeds -join ', '). Review upstream source protection settings."))
+            $results.Add((New-ControlResult -Id "FEED-03" -Status "NOT CHECKED" -Severity "Medium" -Control "External Package Protection" -Finding "Feeds with active upstream sources: $($feedsWithUpstreams -join ', '). Upstreams are typically required for npm/NuGet/Maven; the dependency-confusion mitigation is to publish every internal package name to the feed at least once (save-to-feed makes the local copy win over upstream). Verify each internal package name is saved, and accept this control if the mitigation is in place."))
         }
     } else {
-        $results.Add((New-ControlResult -Id "FEED-03" -Status "PASS" -Severity "High" -Control "External Package Protection" -Finding "No org-level feeds found."))
+        $results.Add((New-ControlResult -Id "FEED-03" -Status "PASS" -Severity "Medium" -Control "External Package Protection" -Finding "No org-scoped feeds found."))
     }
 
     # BADGE-01: Anonymous Badge API — check org pipeline settings

@@ -171,7 +171,7 @@
         DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/artifacts/feeds/feed-permissions'
     }
     'External Package Protection' = @{
-        Steps = @('Navigate to Artifacts > select the feed.','Click the gear icon (Feed settings).','Review Upstream sources.','Disable unnecessary upstream sources.','Enable "Override packages from public sources" protection if available.')
+        Steps = @('Decide whether the upstreams (npmjs, nuget.org, Maven Central, etc.) are required. If not, disable them in feed Settings > Upstream sources.','If upstreams are required, apply the dependency-confusion mitigation: list every internal package name your org publishes (e.g., @contoso/utils, Contoso.Common).','Publish each internal package name to the feed at least once. Once a name is saved-to-feed, Azure Artifacts always serves the local copy and never pulls a same-named package from upstream.','For npm, use a scoped package name (@your-scope/...) so public-registry names cannot collide.','Periodically review the feed view filtered by Saved to confirm every internal name is present.','Document acceptance of FEED-03 in your remediation log once the save-to-feed mitigation is verified.','Reach the feed via any project: Artifacts > feed picker > switch to "All feeds in this organization" > select the feed > gear icon.')
         DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/artifacts/concepts/upstream-sources'
     }
     'Maximum PAT Lifetime Policy' = @{
