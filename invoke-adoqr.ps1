@@ -1377,6 +1377,14 @@ function Write-RemediationHtmlReport {
     $top5Issues = ($top5 | Measure-Object -Property Count -Sum).Sum
     $top5Pct = if ($totalIssues -gt 0) { [math]::Round(($top5Issues / $totalIssues) * 100) } else { 0 }
 
+    # Branded header (shared with executive report + controls reference)
+    $issuesLabel = if ($totalIssues -eq 1) { '1 item to address' } else { "$([int]$totalIssues) items to address" }
+    $headerHtml = Get-AdoqrHeaderHtml -Eyebrow 'Remediation Plan' -Title $OrgName -MetaItems @(
+        "<a href=""$([System.Web.HttpUtility]::HtmlAttributeEncode($execFile))"">&larr; Back to Executive Summary</a>",
+        [System.Web.HttpUtility]::HtmlEncode($issuesLabel),
+        [System.Web.HttpUtility]::HtmlEncode($date)
+    )
+
     $html = @"
 <!DOCTYPE html>
 <html lang="en">
@@ -1400,11 +1408,7 @@ function Write-RemediationHtmlReport {
     a:hover { text-decoration: underline; }
     .container { max-width: 1000px; margin: 0 auto; padding: 2rem 1.5rem; }
 
-    header { background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%); padding: 2.5rem 0; border-bottom: 1px solid var(--surface2); }
-    header h1 { margin: 0 0 .25rem; font-size: 1.75rem; font-weight: 700; }
-    header .subtitle { color: var(--text2); font-size: .95rem; }
-    .back-link { margin-top: .75rem; font-size: .9rem; }
-
+$(Get-AdoqrHeaderCss)
     .impact-box {
       background: var(--surface); border-radius: var(--radius); padding: 1.5rem 2rem;
       margin: 2rem 0; box-shadow: var(--shadow); display: flex; align-items: center;
@@ -1469,13 +1473,8 @@ function Write-RemediationHtmlReport {
   </style>
 </head>
 <body>
-  <header>
-    <div class="container">
-      <h1>Remediation Plan</h1>
-      <p class="subtitle">Prioritized remediation actions for <strong>$([System.Web.HttpUtility]::HtmlEncode($OrgName))</strong></p>
-      <p class="back-link">&larr; <a href="$([System.Web.HttpUtility]::HtmlAttributeEncode($execFile))">Back to Executive Summary</a></p>
-    </div>
-  </header>
+
+$headerHtml
 
   <main class="container">
 
@@ -1503,6 +1502,135 @@ function Write-RemediationHtmlReport {
 
     $html | Set-Content -Path $FilePath -Encoding utf8
     Write-Host "  Remediation report saved: $FilePath" -ForegroundColor Green
+}
+
+# Returns the adoqr logo as a base64 data URI so HTML reports stay self-contained
+# when shared without the assets folder. Cached after first read; returns '' on
+# failure so callers can gracefully fall back to a text-only header.
+function Get-AdoqrLogoDataUri {
+    if ($script:AdoqrLogoDataUri -is [string]) { return $script:AdoqrLogoDataUri }
+    $script:AdoqrLogoDataUri = ''
+    try {
+        # Prefer the script's own directory; fall back to caller invocation root,
+        # then current location. This lets the helper work both when invoke-adoqr.ps1
+        # runs normally and when the function is loaded standalone (e.g. tests).
+        $root = if ($PSScriptRoot) { $PSScriptRoot }
+                elseif ($MyInvocation.PSScriptRoot) { $MyInvocation.PSScriptRoot }
+                else { (Get-Location).Path }
+        $logoPath = Join-Path $root 'assets/adoqr_logo.png'
+        if (-not (Test-Path -LiteralPath $logoPath)) { return $script:AdoqrLogoDataUri }
+        $bytes = [System.IO.File]::ReadAllBytes($logoPath)
+        if ($bytes.Length -gt 0) {
+            $script:AdoqrLogoDataUri = 'data:image/png;base64,' + [Convert]::ToBase64String($bytes)
+        }
+    } catch {
+        Write-Verbose "Could not embed adoqr logo: $_"
+    }
+    return $script:AdoqrLogoDataUri
+}
+
+# Returns the shared CSS rules for the adoqr branded header. Used by every
+# generated HTML report (executive summary, remediation plan) and kept in sync
+# with docs/controls.html for a consistent look.
+function Get-AdoqrHeaderCss {
+    return @'
+    header { background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%); padding: 2rem 0; border-bottom: 1px solid var(--surface2); }
+    .header-brand { display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; margin: 0; }
+    .header-brand .header-logo {
+      display: block; height: 72px; width: auto; max-width: 100%;
+      flex: 0 0 auto;
+      filter: drop-shadow(0 4px 12px rgba(0,0,0,.35));
+    }
+    .header-brand .header-title-group { min-width: 0; }
+    .header-brand .header-logo + .header-title-group {
+      padding-left: 1.5rem;
+      border-left: 1px solid rgba(255,255,255,.12);
+    }
+    .header-brand h1 {
+      margin: 0; font-size: 1.5rem; font-weight: 700; line-height: 1.2;
+      display: flex; flex-direction: column; gap: .15rem;
+    }
+    .header-eyebrow {
+      font-size: .72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .14em; color: var(--text2);
+    }
+    .header-org { color: var(--text); }
+    .header-meta {
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: .35rem .85rem; margin: 1.25rem 0 0;
+      color: var(--text2); font-size: .82rem;
+    }
+    .header-meta > span { display: inline-flex; align-items: center; }
+    .header-meta > span + span::before {
+      content: ''; display: inline-block;
+      width: 3px; height: 3px; border-radius: 50%;
+      background: currentColor; opacity: .5;
+      margin-right: .85rem;
+    }
+    .header-meta a { color: inherit; text-decoration: none; border-bottom: 1px dotted rgba(148,163,184,.4); }
+    .header-meta a:hover { color: var(--text); border-bottom-color: var(--text); }
+    .visually-hidden {
+      position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+    @media (max-width: 640px) {
+      header { padding: 1.5rem 0; }
+      .header-brand { gap: 1rem; }
+      .header-brand .header-logo { height: 56px; }
+      .header-brand .header-logo + .header-title-group { padding-left: 1rem; }
+      .header-brand h1 { font-size: 1.25rem; }
+      .header-meta { margin-top: 1rem; font-size: .78rem; gap: .25rem .65rem; }
+      .header-meta > span + span::before { margin-right: .65rem; }
+    }
+'@
+}
+
+# Returns the shared <header> HTML for all adoqr reports.
+# - Eyebrow:   small caps label (e.g. "Executive Summary", "Remediation Plan").
+# - Title:     prominent visible heading (usually the org name).
+# - MetaItems: optional array of HTML snippets rendered as a bullet-separated
+#              meta row. Each item is already HTML-encoded by the caller.
+function Get-AdoqrHeaderHtml {
+    param(
+        [Parameter(Mandatory)][string]$Eyebrow,
+        [Parameter(Mandatory)][string]$Title,
+        [string[]]$MetaItems = @()
+    )
+
+    $logoDataUri = Get-AdoqrLogoDataUri
+    $logoImgHtml = if ($logoDataUri) {
+        "<img class=""header-logo"" src=""$logoDataUri"" alt=""ADOQR — Azure DevOps Quick Review"" width=""288"" height=""72"" />"
+    } else { '' }
+
+    $eyebrowEnc = [System.Web.HttpUtility]::HtmlEncode($Eyebrow)
+    $titleEnc   = [System.Web.HttpUtility]::HtmlEncode($Title)
+
+    $metaHtml = ''
+    if ($MetaItems -and $MetaItems.Count -gt 0) {
+        $spans = ($MetaItems | ForEach-Object { "<span>$_</span>" }) -join "`n        "
+        $metaHtml = @"
+      <p class="header-meta" aria-label="Report metadata">
+        $spans
+      </p>
+"@
+    }
+
+    return @"
+  <header>
+    <div class="container">
+      <div class="header-brand">
+        $logoImgHtml
+        <div class="header-title-group">
+          <h1>
+            <span class="header-eyebrow">$eyebrowEnc</span>
+            <span class="header-org">$titleEnc</span>
+          </h1>
+        </div>
+      </div>
+$metaHtml
+    </div>
+  </header>
+"@
 }
 
 function Write-ExecutiveHtmlReport {
@@ -1583,6 +1711,18 @@ function Write-ExecutiveHtmlReport {
     $orgMdFile = [System.IO.Path]::GetFileName($OrgSummary.ReportFile)
     $notCheckedHtml = Build-NotCheckedSectionHtml -OrgSummary $OrgSummary -ProjectSummaries $ProjectSummaries
 
+    # Branded header (shared with remediation plan + controls reference)
+    $orgUrlDisplay   = $OrgUrl -replace '^https?://', ''
+    $orgUrlAttr      = [System.Web.HttpUtility]::HtmlAttributeEncode($OrgUrl)
+    $orgUrlDisplayEnc = [System.Web.HttpUtility]::HtmlEncode($orgUrlDisplay)
+    $projectsLabel   = if ($totalProjects -eq 1) { '1 project' } else { "$totalProjects projects" }
+    $headerHtml = Get-AdoqrHeaderHtml -Eyebrow 'Executive Summary' -Title $OrgName -MetaItems @(
+        "<a href=""$orgUrlAttr"" target=""_blank"" rel=""noopener noreferrer"">$orgUrlDisplayEnc</a>",
+        [System.Web.HttpUtility]::HtmlEncode($projectsLabel),
+        [System.Web.HttpUtility]::HtmlEncode($ElapsedTime),
+        [System.Web.HttpUtility]::HtmlEncode($date)
+    )
+
     $html = @"
 <!DOCTYPE html>
 <html lang="en">
@@ -1609,9 +1749,7 @@ function Write-ExecutiveHtmlReport {
 
     .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
 
-    header { background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%); padding: 2.5rem 0; border-bottom: 1px solid var(--surface2); }
-    header h1 { margin: 0 0 .25rem; font-size: 1.75rem; font-weight: 700; }
-    header .subtitle { color: var(--text2); font-size: .95rem; }
+$(Get-AdoqrHeaderCss)
     .meta { display: flex; gap: 2rem; margin-top: 1rem; flex-wrap: wrap; }
     .meta-item { font-size: .85rem; color: var(--text2); }
     .meta-item strong { color: var(--text); }
@@ -1912,18 +2050,7 @@ function Write-ExecutiveHtmlReport {
 <body>
   <a href="#main" class="skip-link">Skip to main content</a>
 
-  <header>
-    <div class="container">
-      <h1>Azure DevOps Quick Review</h1>
-      <p class="subtitle">Executive Summary for <strong>$([System.Web.HttpUtility]::HtmlEncode($OrgName))</strong></p>
-      <div class="meta" role="list">
-        <span class="meta-item" role="listitem"><strong>Date:</strong> $date</span>
-        <span class="meta-item" role="listitem"><strong>Organization:</strong> $([System.Web.HttpUtility]::HtmlEncode($OrgUrl))</span>
-        <span class="meta-item" role="listitem"><strong>Projects:</strong> $totalProjects</span>
-        <span class="meta-item" role="listitem"><strong>Duration:</strong> $ElapsedTime</span>
-      </div>
-    </div>
-  </header>
+$headerHtml
 
   <nav class="section-nav" aria-label="Section navigation">
     <div class="section-nav-inner">

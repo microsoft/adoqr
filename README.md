@@ -1,3 +1,4 @@
+![adoqr logo](assets/adoqr_logo.png)
 # Azure DevOps Quick Review
 
 Azure DevOps Quick Review (**adoqr**) is a PowerShell-based tool that analyzes
