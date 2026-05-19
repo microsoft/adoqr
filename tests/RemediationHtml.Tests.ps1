@@ -29,6 +29,8 @@ Describe 'Write-RemediationHtmlReport' {
             $html | Should -Match 'Why is this control being accepted\?'
             $html | Should -Match 'Save accepted control'
             $html | Should -Match 'data-accepted-date'
+            $html | Should -Match 'data-control-key="AUTH-01\|Conditional Access"'
+            $html | Should -Match 'aria-required="true"'
             $html | Should -Match 'localStorage'
         }
         finally {
