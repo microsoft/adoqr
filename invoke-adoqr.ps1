@@ -3894,10 +3894,19 @@ function Test-AgentPools {
             $results.Add((New-ControlResult -Id "AP-04" -Status "PASS" -Severity "High" -Control "Auto-Provisioning Disabled" -Finding "$prefix — Auto-provision is disabled."))
         }
 
-        # AP-05: Accessible to all pipelines
+        # AP-05: Accessible to all pipelines.
+        # Same reasoning as AP-04: Microsoft-hosted pools (Azure Pipelines,
+        # Hosted Ubuntu/macOS/Windows, etc.) default to "open to all
+        # pipelines" by design. The agents are isolated, ephemeral, and
+        # Microsoft-managed, so broad pipeline access does not expose
+        # customer infrastructure. The AzSK/SDL control targets self-hosted
+        # pools where unauthorized pipelines could reach internal networks
+        # or persisted credentials on the agent.
         $pipePerms = Invoke-AdoApi -Uri "$OrgUrl/$ProjectName/_apis/pipelines/pipelinePermissions/queue/${queueId}?api-version=7.1-preview.1" -Header $Header
-        if ($pipePerms -and ($pipePerms.PSObject.Properties['allPipelines']) -and $pipePerms.allPipelines.authorized -eq $true) {
-            $results.Add((New-ControlResult -Id "AP-05" -Status "FAIL" -Severity "High" -Control "Not Accessible to All YAML Pipelines" -Finding "$prefix — Accessible to ALL pipelines. Restrict to specific pipelines."))
+        if ($pool.isHosted -eq $true) {
+            $results.Add((New-ControlResult -Id "AP-05" -Status "PASS" -Severity "High" -Control "Not Accessible to All YAML Pipelines" -Finding "$prefix — Microsoft-hosted pool; broad pipeline access is the Microsoft-managed default and not a customer-side security concern."))
+        } elseif ($pipePerms -and ($pipePerms.PSObject.Properties['allPipelines']) -and $pipePerms.allPipelines.authorized -eq $true) {
+            $results.Add((New-ControlResult -Id "AP-05" -Status "FAIL" -Severity "High" -Control "Not Accessible to All YAML Pipelines" -Finding "$prefix — Self-hosted pool accessible to ALL pipelines. Restrict to specific pipelines."))
         } elseif ($pipePerms) {
             $results.Add((New-ControlResult -Id "AP-05" -Status "PASS" -Severity "High" -Control "Not Accessible to All YAML Pipelines" -Finding "$prefix — Not accessible to all pipelines."))
         }
