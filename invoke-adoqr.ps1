@@ -2055,11 +2055,11 @@ $headerHtml
   <nav class="section-nav" aria-label="Section navigation">
     <div class="section-nav-inner">
       <a href="#adoption" data-target="adoption">Overview</a>
-      <a href="#not-checked-section" data-target="not-checked-section">Not Checked</a>
       <a href="#top-remediations" data-target="top-remediations">Top Actions</a>
       <a href="#hot-spots" data-target="hot-spots">Hot Spots</a>
       <a href="#organization" data-target="organization">Organization</a>
       <a href="#project-results" data-target="project-results">Projects</a>
+      <a href="#not-checked-section" data-target="not-checked-section">Not Checked</a>
       <a href="#comparison-section" data-target="comparison-section">Run Comparison</a>
       <span class="section-nav-resources">
         <a class="nav-external" href="https://microsoft.github.io/adoqr/controls.html"
@@ -2115,8 +2115,6 @@ $headerHtml
         </div>
       </div>
     </section>
-
-    $notCheckedHtml
 
     <!-- Priority Remediation Actions -->
     $(if ($TopRemediations -and $TopRemediations.Count -gt 0) {
@@ -2214,6 +2212,8 @@ $headerHtml
         </table>
       </div>
     </section>
+
+    $notCheckedHtml
 
     $ComparisonHtml
 
