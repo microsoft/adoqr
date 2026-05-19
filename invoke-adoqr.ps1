@@ -4313,11 +4313,19 @@ function Test-Environments {
         #          'evaluatebranchProtection' or a displayName containing
         #          'branch control')
         if (Test-IsProductionStage $envName) {
-            $envDetail = Invoke-AdoApi -Uri "$OrgUrl/$ProjectName/_apis/distributedtask/environments/${envId}?expands=checks&api-version=7.1-preview.1" -Header $Header
+            # Environment-level approval and Task Check (branch control) checks
+            # are NOT returned by the Environments Get endpoint. They must be
+            # fetched via the Approvals-and-Checks "Check Configurations" API,
+            # which returns a typed list keyed to the environment resource and
+            # supports ?$expand=settings to surface approver/branch-control
+            # details inline.
+            $checksResp = Invoke-AdoApi -Uri "$OrgUrl/$ProjectName/_apis/pipelines/checks/configurations?resourceType=environment&resourceId=${envId}&`$expand=settings&api-version=7.1-preview.1" -Header $Header
             $approvalCheck    = $null
             $hasBranchControl = $false
-            if ($envDetail -and $envDetail.checks) {
-                foreach ($check in $envDetail.checks) {
+            if ($checksResp -and $checksResp.value) {
+                foreach ($check in $checksResp.value) {
+                    # Skip explicitly disabled checks — they do not enforce anything.
+                    if ((Get-SafeProperty $check 'isDisabled') -eq $true) { continue }
                     $checkTypeName = Get-SafeProperty (Get-SafeProperty $check 'type') 'name'
                     if (-not $approvalCheck -and $checkTypeName -and $checkTypeName -imatch 'approval') {
                         $approvalCheck = $check
