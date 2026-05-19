@@ -43,6 +43,7 @@ The output of an adoqr run includes:
 - **Organization summary** — a single view of org-level posture
 - **Per-project reports** — best-practice adoption for each project
 - **Executive dashboard** — KPI cards, an adoption ring, and a project comparison table
+- **Not checked explanations** — reason categories and scoped details for controls that need permissions, prerequisites, configuration data, or manual review
 - **Remediation plan** — every unique action ranked by impact, with links to Microsoft Learn
 
 Each run creates a **timestamped folder** under `assessments/` (e.g.

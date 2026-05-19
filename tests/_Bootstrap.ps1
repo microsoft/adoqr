@@ -22,6 +22,11 @@ $wantedFns = @(
     'New-ControlResult'
     'Test-PolicyAppliesToBranch'
     'Export-AssessmentToJson'
+    'Import-ScanRunFromMarkdownReports'
+    'Get-PriorScanRuns'
+    'Build-ComparisonSectionHtml'
+    'Get-NotCheckedReasonCategory'
+    'Build-NotCheckedSectionHtml'
     'Import-AdoqrSettings'
 )
 
