@@ -1897,13 +1897,13 @@ $headerHtml
         </button>
       </div>
       <div id="panel-active-controls" role="tabpanel" aria-labelledby="tab-active-controls" data-remed-panel="active">
-        <p class="remed-tab-panel-note"><strong>Use "Accept risk"</strong> when the business has approved the control gap and provided justification. Accepted controls move out of the active remediation list.</p>
+        <p class="remed-tab-panel-note"><strong>Use "Accept risk"</strong> when the business has approved the control gap and provided justification. Accepted controls move out of the active remediation list and are saved per organization for future remediation reports opened in the same browser.</p>
         <div id="remed-active-list">
           $($rows.ToString())
         </div>
       </div>
       <div id="panel-accepted-controls" role="tabpanel" aria-labelledby="tab-accepted-controls" data-remed-panel="accepted" hidden>
-        <p class="remed-tab-panel-note">Accepted controls keep the business justification and the acceptance date together for later review.</p>
+        <p class="remed-tab-panel-note">Accepted controls keep the business justification and the acceptance date together for later review, and they are automatically reused on later remediation reports for this organization in the same browser.</p>
         <div id="remed-accepted-list"></div>
         <p class="remed-empty" id="accepted-controls-empty">No controls have been accepted yet.</p>
       </div>

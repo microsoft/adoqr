@@ -278,7 +278,9 @@ adopting the recommended best practices.
   exactly where to navigate in Azure DevOps and what to change.
 - If a control has an approved exception, click **"Accept risk"**, enter the
   business justification, and the card will move to the **Accepted Controls**
-  tab with the recorded acceptance date.
+  tab with the recorded acceptance date. Accepted controls are stored per
+  organization in the browser and reused by future remediation reports opened
+  in the same browser.
 - After applying changes, re-run adoqr to verify the items are resolved.
 
 ![sample remediation plan](assets/remediation_steps.png)

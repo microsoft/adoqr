@@ -32,6 +32,7 @@ Describe 'Write-RemediationHtmlReport' {
             $html | Should -Match 'data-control-key="AUTH-01\|Conditional Access"'
             $html | Should -Match 'aria-required="true"'
             $html | Should -Match 'localStorage'
+            $html | Should -Match 'saved per organization for future remediation reports opened in the same browser'
         }
         finally {
             Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
