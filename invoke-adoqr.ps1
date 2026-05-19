@@ -1412,7 +1412,7 @@ function Build-NotCheckedSectionHtml {
         if ($items.Count -eq 0) { return '' }
 
         $reasonCards = [System.Text.StringBuilder]::new()
-        $reasonCounts = New-Object System.Collections.Hashtable
+        $reasonCounts = @{}
         foreach ($item in $items) {
                 if (-not $reasonCounts.ContainsKey($item.Reason)) { $reasonCounts[$item.Reason] = 0 }
                 $reasonCounts[$item.Reason]++
@@ -1430,7 +1430,7 @@ function Build-NotCheckedSectionHtml {
         }
 
         $detailGroups = [System.Text.StringBuilder]::new()
-        $scopeGroups = New-Object System.Collections.Hashtable
+        $scopeGroups = @{}
         foreach ($item in $items) {
             if (-not $scopeGroups.ContainsKey($item.Scope)) { $scopeGroups[$item.Scope] = [System.Collections.Generic.List[PSCustomObject]]::new() }
             $scopeGroups[$item.Scope].Add($item)
