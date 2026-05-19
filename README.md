@@ -265,6 +265,7 @@ adopting the recommended best practices.
 | **Affected areas** | Which projects (or Organization) are impacted |
 | **Example finding** | A representative finding from the review |
 | **How to adopt** | Expandable step-by-step instructions (click to reveal) |
+| **Accept risk** | A justification text box that lets reviewers move a control into the **Accepted Controls** tab when the business accepts the risk |
 | **Documentation link** | Direct link to the relevant Microsoft Learn page |
 
 ### Using the Remediation Plan
@@ -275,6 +276,9 @@ adopting the recommended best practices.
   typically resolve 50–80% of all items.
 - Click **"How to adopt"** on any card to expand the numbered steps showing
   exactly where to navigate in Azure DevOps and what to change.
+- If a control has an approved exception, click **"Accept risk"**, enter the
+  business justification, and the card will move to the **Accepted Controls**
+  tab with the recorded acceptance date.
 - After applying changes, re-run adoqr to verify the items are resolved.
 
 ![sample remediation plan](assets/remediation_steps.png)

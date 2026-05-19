@@ -1566,7 +1566,32 @@ function Get-RemediationSteps {
     param([string]$ControlName)
 
     if (-not $script:RemediationData) {
-        $script:RemediationData = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'remediation-steps.psd1')
+        $parentRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { $null }
+        $candidateRoots = [System.Collections.Generic.List[string]]::new()
+        foreach ($candidate in @(
+                $PSScriptRoot,
+                $MyInvocation.PSScriptRoot,
+                $parentRoot,
+                (Get-Location).Path
+            )) {
+            if ($candidate -and -not $candidateRoots.Contains($candidate)) {
+                $candidateRoots.Add($candidate)
+            }
+        }
+
+        $dataPath = $null
+        foreach ($root in $candidateRoots) {
+            $candidatePath = Join-Path $root 'remediation-steps.psd1'
+            if (Test-Path -LiteralPath $candidatePath) {
+                $dataPath = $candidatePath
+                break
+            }
+        }
+        if (-not $dataPath) {
+            throw "Could not locate remediation-steps.psd1."
+        }
+
+        $script:RemediationData = Import-PowerShellDataFile $dataPath
     }
 
     $result = $script:RemediationData[$ControlName]
@@ -1600,6 +1625,9 @@ function Write-RemediationHtmlReport {
         $sevBg = switch ($r.Severity) { 'High' { 'rgba(239,68,68,.12)' } 'Medium' { 'rgba(245,158,11,.12)' } 'Low' { 'rgba(59,130,246,.12)' } }
         $affectedList = ($r.AffectedAreas | ForEach-Object { "<li>$([System.Web.HttpUtility]::HtmlEncode($_))</li>" }) -join ''
         $pctOfTotal = if ($totalIssues -gt 0) { [math]::Round(($r.Count / $totalIssues) * 100) } else { 0 }
+        $controlKey = if ($r.ControlId) { $r.ControlId } else { $r.ControlName }
+        $controlKeyAttr = [System.Web.HttpUtility]::HtmlAttributeEncode($controlKey)
+        $noteId = "accepted-note-$rank"
 
         # Get remediation steps
         $stepInfo = Get-RemediationSteps -ControlName $r.ControlName
@@ -1607,7 +1635,7 @@ function Write-RemediationHtmlReport {
         $docLink = $stepInfo.DocUrl
 
         [void]$rows.AppendLine(@"
-        <div class="remed-card">
+        <article class="remed-card" data-control-key="$controlKeyAttr" data-rank="$rank">
           <div class="remed-header">
             <div class="remed-rank">#$rank</div>
             <div class="remed-title">
@@ -1637,10 +1665,38 @@ function Write-RemediationHtmlReport {
             <ol>$stepsHtml</ol>
             <a class="doc-link" href="$([System.Web.HttpUtility]::HtmlAttributeEncode($docLink))" target="_blank" rel="noopener">📄 Microsoft Learn documentation &rarr;</a>
           </details>
+          <div class="remed-acceptance">
+            <div class="remed-acceptance-actions">
+              <button type="button" class="remed-btn remed-btn-secondary" data-open-accept>Accept risk</button>
+              <button type="button" class="remed-btn remed-btn-link" data-unaccept hidden>Return to remediation actions</button>
+            </div>
+            <div class="remed-accept-form" data-accept-form hidden>
+              <label class="remed-accept-label" for="$noteId">Why is this control being accepted?</label>
+              <textarea id="$noteId" class="remed-accept-text" rows="3" maxlength="1000" placeholder="Describe the accepted risk, business justification, and approval context." data-accept-note></textarea>
+              <p class="remed-accept-error" data-accept-error hidden>Please enter a description before accepting this control.</p>
+              <div class="remed-accept-form-actions">
+                <button type="button" class="remed-btn remed-btn-primary" data-accept-save>Save accepted control</button>
+                <button type="button" class="remed-btn remed-btn-link" data-accept-cancel>Cancel</button>
+              </div>
+            </div>
+            <div class="remed-accepted-meta" data-accepted-meta hidden>
+              <div class="remed-accepted-badge">Accepted control</div>
+              <dl class="remed-accepted-grid">
+                <div>
+                  <dt>Accepted on</dt>
+                  <dd data-accepted-date></dd>
+                </div>
+                <div>
+                  <dt>Description</dt>
+                  <dd data-accepted-note></dd>
+                </div>
+              </dl>
+            </div>
+          </div>
           <div class="remed-bar-track">
             <div class="remed-bar-fill" style="width:${pctOfTotal}%;background:$sevColor"></div>
           </div>
-        </div>
+        </article>
 "@)
     }
 
@@ -1657,6 +1713,7 @@ function Write-RemediationHtmlReport {
         [System.Web.HttpUtility]::HtmlEncode($date)
     )
 
+    $storageKeyJson = ("adoqr.acceptedControls.$OrgName" | ConvertTo-Json -Compress)
     $html = @"
 <!DOCTYPE html>
 <html lang="en">
@@ -1678,6 +1735,7 @@ function Write-RemediationHtmlReport {
     }
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
+    [hidden] { display: none !important; }
     .container { max-width: 1000px; margin: 0 auto; padding: 2rem 1.5rem; }
 
 $(Get-AdoqrHeaderCss)
@@ -1733,6 +1791,71 @@ $(Get-AdoqrHeaderCss)
     .remed-steps li::marker { color: var(--accent); font-weight: 700; }
     .remed-steps .doc-link { display: inline-block; margin-top: .5rem; font-size: .85rem; }
 
+    .remed-tabs {
+      display: inline-flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 1rem;
+      padding: .35rem; background: var(--surface); border: 1px solid var(--surface2); border-radius: 999px;
+    }
+    .remed-tab {
+      border: 0; border-radius: 999px; background: transparent; color: var(--text2);
+      padding: .55rem 1rem; font: inherit; font-weight: 700; cursor: pointer;
+      display: inline-flex; align-items: center; gap: .5rem;
+    }
+    .remed-tab:hover { color: var(--text); background: rgba(59,130,246,.08); }
+    .remed-tab[aria-selected="true"] { color: var(--text); background: rgba(59,130,246,.16); }
+    .remed-tab-count {
+      min-width: 1.7rem; height: 1.7rem; padding: 0 .45rem; border-radius: 999px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--surface2); color: var(--text); font-size: .78rem; font-weight: 800;
+    }
+    .remed-tab-panel-note { margin: 0 0 1rem; color: var(--text2); font-size: .9rem; }
+    .remed-tab-panel-note strong { color: var(--text); }
+    .remed-empty {
+      margin: 0; padding: 1rem 1.25rem; color: var(--text2);
+      background: var(--surface); border: 1px dashed var(--surface2); border-radius: 12px;
+    }
+    .remed-card-accepted { border: 1px solid rgba(34,197,94,.22); }
+    .remed-acceptance {
+      padding: 0 1.5rem 1.25rem;
+      display: flex; flex-direction: column; gap: .85rem;
+    }
+    .remed-acceptance-actions, .remed-accept-form-actions {
+      display: flex; gap: .75rem; flex-wrap: wrap; align-items: center;
+    }
+    .remed-btn {
+      border: 0; border-radius: 999px; padding: .65rem 1rem;
+      font: inherit; font-weight: 700; cursor: pointer;
+    }
+    .remed-btn-primary { background: var(--accent); color: #fff; }
+    .remed-btn-secondary { background: rgba(59,130,246,.14); color: var(--accent); }
+    .remed-btn-link { background: transparent; color: var(--text2); padding-left: 0; padding-right: 0; }
+    .remed-btn-link:hover { color: var(--text); text-decoration: underline; }
+    .remed-accept-form {
+      background: rgba(15,23,42,.35); border: 1px solid var(--surface2); border-radius: 12px; padding: 1rem;
+    }
+    .remed-accept-label { display: block; font-weight: 700; margin-bottom: .5rem; }
+    .remed-accept-text {
+      width: 100%; min-height: 7rem; resize: vertical; border-radius: 10px;
+      border: 1px solid var(--surface2); background: var(--bg); color: var(--text);
+      padding: .8rem .95rem; font: inherit;
+    }
+    .remed-accept-text:focus, .remed-tab:focus, .remed-btn:focus {
+      outline: 3px solid var(--accent); outline-offset: 2px;
+    }
+    .remed-accept-error { color: var(--fail); font-size: .85rem; margin: .5rem 0 0; }
+    .remed-accepted-meta {
+      background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.2);
+      border-radius: 12px; padding: 1rem;
+    }
+    .remed-accepted-badge {
+      display: inline-flex; align-items: center; gap: .35rem;
+      padding: .25rem .7rem; border-radius: 999px; background: rgba(34,197,94,.15); color: var(--pass);
+      font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .75rem;
+    }
+    .remed-accepted-grid { margin: 0; display: grid; gap: .75rem; }
+    .remed-accepted-grid div { display: grid; gap: .2rem; }
+    .remed-accepted-grid dt { color: var(--text2); font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .remed-accepted-grid dd { margin: 0; white-space: pre-wrap; }
+
     .section { margin: 2.5rem 0; }
     .section h2 { font-size: 1.25rem; font-weight: 700; margin: 0 0 1rem; padding-bottom: .5rem; border-bottom: 1px solid var(--surface2); }
 
@@ -1741,6 +1864,8 @@ $(Get-AdoqrHeaderCss)
     @media (max-width: 640px) {
       .remed-header { flex-direction: column; align-items: flex-start; }
       .impact-box { flex-direction: column; text-align: center; }
+      .remed-tabs { width: 100%; border-radius: 20px; }
+      .remed-tab { flex: 1 1 100%; justify-content: center; }
     }
   </style>
 </head>
@@ -1760,7 +1885,27 @@ $headerHtml
 
     <section class="section">
       <h2>Remediation Actions — Ranked by Impact</h2>
-      $($rows.ToString())
+      <div class="remed-tabs" role="tablist" aria-label="Remediation workflow">
+        <button type="button" class="remed-tab" id="tab-active-controls" role="tab" aria-selected="true" aria-controls="panel-active-controls" data-remed-tab="active">
+          Remediation Actions
+          <span class="remed-tab-count" data-active-count>$($Remediations.Count)</span>
+        </button>
+        <button type="button" class="remed-tab" id="tab-accepted-controls" role="tab" aria-selected="false" aria-controls="panel-accepted-controls" data-remed-tab="accepted">
+          Accepted Controls
+          <span class="remed-tab-count" data-accepted-count>0</span>
+        </button>
+      </div>
+      <div id="panel-active-controls" role="tabpanel" aria-labelledby="tab-active-controls" data-remed-panel="active">
+        <p class="remed-tab-panel-note"><strong>Use "Accept risk"</strong> when the business has approved the control gap and provided justification. Accepted controls move out of the active remediation list.</p>
+        <div id="remed-active-list">
+          $($rows.ToString())
+        </div>
+      </div>
+      <div id="panel-accepted-controls" role="tabpanel" aria-labelledby="tab-accepted-controls" data-remed-panel="accepted" hidden>
+        <p class="remed-tab-panel-note">Accepted controls keep the business justification and the acceptance date together for later review.</p>
+        <div id="remed-accepted-list"></div>
+        <p class="remed-empty" id="accepted-controls-empty">No controls have been accepted yet.</p>
+      </div>
     </section>
 
   </main>
@@ -1768,6 +1913,181 @@ $headerHtml
   <footer>
     <p>Generated by <strong>invoke-adoqr.ps1</strong> on $date</p>
   </footer>
+  <script>
+    (function () {
+      var storageKey = $storageKeyJson;
+      var cards = Array.prototype.slice.call(document.querySelectorAll('.remed-card'));
+      if (cards.length === 0) { return; }
+
+      var activeList = document.getElementById('remed-active-list');
+      var acceptedList = document.getElementById('remed-accepted-list');
+      var acceptedEmpty = document.getElementById('accepted-controls-empty');
+      var activeCount = document.querySelector('[data-active-count]');
+      var acceptedCount = document.querySelector('[data-accepted-count]');
+      var tabs = Array.prototype.slice.call(document.querySelectorAll('[data-remed-tab]'));
+      var panels = {
+        active: document.querySelector('[data-remed-panel="active"]'),
+        accepted: document.querySelector('[data-remed-panel="accepted"]')
+      };
+
+      function readState() {
+        try {
+          var raw = window.localStorage ? window.localStorage.getItem(storageKey) : null;
+          if (!raw) { return {}; }
+          var parsed = JSON.parse(raw);
+          return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+          return {};
+        }
+      }
+
+      function writeState(nextState) {
+        try {
+          if (window.localStorage) {
+            window.localStorage.setItem(storageKey, JSON.stringify(nextState));
+          }
+        } catch (e) {
+        }
+      }
+
+      function insertByRank(container, card) {
+        var rank = parseInt(card.getAttribute('data-rank') || '0', 10);
+        var inserted = false;
+        Array.prototype.forEach.call(container.children, function (child) {
+          if (inserted) { return; }
+          var childRank = parseInt(child.getAttribute('data-rank') || '0', 10);
+          if (rank < childRank) {
+            container.insertBefore(card, child);
+            inserted = true;
+          }
+        });
+        if (!inserted) {
+          container.appendChild(card);
+        }
+      }
+
+      function formatAcceptedAt(value) {
+        var parsed = new Date(value);
+        return isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+      }
+
+      function setTab(name) {
+        tabs.forEach(function (tab) {
+          var isSelected = tab.getAttribute('data-remed-tab') === name;
+          tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+        });
+        Object.keys(panels).forEach(function (key) {
+          panels[key].hidden = key !== name;
+        });
+      }
+
+      function updateCounts() {
+        var openCount = activeList.children.length;
+        var acceptedTotal = acceptedList.children.length;
+        activeCount.textContent = openCount;
+        acceptedCount.textContent = acceptedTotal;
+        acceptedEmpty.hidden = acceptedTotal > 0;
+      }
+
+      function applyAcceptedState(card, acceptedInfo) {
+        var meta = card.querySelector('[data-accepted-meta]');
+        var metaDate = card.querySelector('[data-accepted-date]');
+        var metaNote = card.querySelector('[data-accepted-note]');
+        var form = card.querySelector('[data-accept-form]');
+        var openAccept = card.querySelector('[data-open-accept]');
+        var unaccept = card.querySelector('[data-unaccept]');
+        var noteField = card.querySelector('[data-accept-note]');
+        var error = card.querySelector('[data-accept-error]');
+
+        card.classList.add('remed-card-accepted');
+        form.hidden = true;
+        error.hidden = true;
+        openAccept.hidden = true;
+        unaccept.hidden = false;
+        meta.hidden = false;
+        noteField.value = acceptedInfo.note || '';
+        metaDate.textContent = formatAcceptedAt(acceptedInfo.acceptedAt);
+        metaNote.textContent = acceptedInfo.note || '';
+        insertByRank(acceptedList, card);
+      }
+
+      function applyOpenState(card) {
+        var meta = card.querySelector('[data-accepted-meta]');
+        var form = card.querySelector('[data-accept-form]');
+        var openAccept = card.querySelector('[data-open-accept]');
+        var unaccept = card.querySelector('[data-unaccept]');
+        var error = card.querySelector('[data-accept-error]');
+
+        card.classList.remove('remed-card-accepted');
+        form.hidden = true;
+        error.hidden = true;
+        openAccept.hidden = false;
+        unaccept.hidden = true;
+        meta.hidden = true;
+        insertByRank(activeList, card);
+      }
+
+      var state = readState();
+      cards.forEach(function (card) {
+        var controlKey = card.getAttribute('data-control-key');
+        if (state[controlKey]) {
+          applyAcceptedState(card, state[controlKey]);
+        } else {
+          applyOpenState(card);
+        }
+
+        var form = card.querySelector('[data-accept-form]');
+        var noteField = card.querySelector('[data-accept-note]');
+        var error = card.querySelector('[data-accept-error]');
+
+        card.querySelector('[data-open-accept]').addEventListener('click', function () {
+          form.hidden = false;
+          error.hidden = true;
+          noteField.focus();
+        });
+
+        card.querySelector('[data-accept-cancel]').addEventListener('click', function () {
+          form.hidden = true;
+          error.hidden = true;
+        });
+
+        card.querySelector('[data-accept-save]').addEventListener('click', function () {
+          var note = (noteField.value || '').trim();
+          if (!note) {
+            error.hidden = false;
+            noteField.focus();
+            return;
+          }
+
+          state[controlKey] = {
+            note: note,
+            acceptedAt: new Date().toISOString()
+          };
+          writeState(state);
+          applyAcceptedState(card, state[controlKey]);
+          updateCounts();
+          setTab('accepted');
+        });
+
+        card.querySelector('[data-unaccept]').addEventListener('click', function () {
+          delete state[controlKey];
+          writeState(state);
+          applyOpenState(card);
+          updateCounts();
+          setTab('active');
+        });
+      });
+
+      tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          setTab(tab.getAttribute('data-remed-tab'));
+        });
+      });
+
+      updateCounts();
+      setTab('active');
+    })();
+  </script>
 </body>
 </html>
 "@
