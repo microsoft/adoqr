@@ -330,6 +330,38 @@
         Steps = @('Navigate to Project Settings > Repositories > Security.','Locate the "Create repository" permission.','Set Allow only for trusted groups (e.g. Project Administrators); set Not set or Deny for broad groups like Contributors.','Document an intake process for new repos.')
         DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/repos/git/set-git-repository-permissions'
     }
+    'Build Pipeline Inherited Permissions' = @{
+        Steps = @('Navigate to Pipelines > Builds and select the three-dot menu > Manage security at the top of the list (this opens the project-default Build ACL).','Find each flagged broader group (e.g. Contributors, Project Valid Users, Project Collection Build Service Accounts).','Set Edit build pipeline, Delete build pipeline, Administer build permissions, Override check-in validation, and similar mutating permissions to Not set (or Deny if inheritance is forcing Allow).','Leave View build pipeline / View builds at Allow only where required.','Verify a flagged group can no longer edit or queue builds.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/policies/permissions'
+    }
+    'Release Pipeline Inherited Permissions' = @{
+        Steps = @('Navigate to Pipelines > Releases > Security (the project-default release ACL).','Find each flagged broader group.','Set Edit release pipeline, Delete release pipeline, Manage approvers, Manage release pipelines, and Administer to Not set or Deny.','Leave View release pipeline at Allow only where required.','Confirm the flagged group can no longer modify approvals or pipeline definitions.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/policies/permissions'
+    }
+    'Service Connection Inherited Permissions' = @{
+        Steps = @('Navigate to Project Settings > Service connections > Security (project-default).','Find each flagged broader group.','Set User, Administrator, and Creator roles to remove the group; only allow named, least-privilege groups (e.g. specific pipeline teams).','For sensitive service connections (production cloud subscriptions, container registries), prefer per-connection role assignments over project-default Allow.','Verify pipelines owned by other teams can no longer reference the connection.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints'
+    }
+    'Agent Pool Inherited Permissions' = @{
+        Steps = @('Navigate to Project Settings > Agent pools.','For each pool, open Security.','Remove broader groups (Contributors, Project Valid Users, Build Service) from the Administrator, User, and Service Account roles.','Keep pool access scoped to the pipeline teams that need it.','Repeat at Organization Settings > Agent pools > Security for org-level pools.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/pools-queues'
+    }
+    'Variable Group Inherited Permissions' = @{
+        Steps = @('Navigate to Pipelines > Library > Security (project-default for all variable groups).','Find each flagged broader group.','Set Administrator and User roles to Not set; only the pipeline teams that consume the variable group should have User.','For variable groups holding secrets, replace with Azure Key Vault-linked variable groups and grant Key Vault access via managed identity.','Verify other pipelines can no longer reference the variable group.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/library/variable-groups'
+    }
+    'Repository Inherited Permissions' = @{
+        Steps = @('Navigate to Project Settings > Repositories > Security (project-default Git ACL).','Find each flagged broader group.','Set Administer, Manage permissions, Force push, Remove others'' locks, Edit policies, and Manage notes to Not set or Deny.','Leave Read at Allow only where required; in regulated projects, scope Read to named teams.','Re-run adoqr after the change to confirm the ACE no longer carries elevated bits.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/repos/git/set-git-repository-permissions'
+    }
+    'Secure File Inherited Permissions' = @{
+        Steps = @('Navigate to Pipelines > Library > Secure files > Security (project-default).','Find each flagged broader group.','Set Administrator and User roles to Not set; only the pipeline teams that need a specific secure file should have User on that file.','For high-value secure files (signing certs, kubeconfigs), pin per-file roles rather than inheriting from project-default.','Confirm flagged groups can no longer download the secure file.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/library/secure-files'
+    }
+    'Environment Inherited Permissions' = @{
+        Steps = @('Navigate to Pipelines > Environments.','For each environment (especially production), open the three-dot menu > Security.','Remove broader groups from the Administrator, User, and Creator roles.','Replace with named pipeline-team groups.','Combine with Approvals and Branch control checks on the environment so a misconfigured pipeline cannot deploy to production.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/process/environments'
+    }
     'Auto-Injected Tasks' = @{
         Steps = @('Navigate to Organization Settings > Pipelines (and any extensions that auto-inject tasks).','List every task that is auto-injected into pipelines (decorators, pipeline policies, agent pre/post-jobs).','For each, confirm the task is published by a trusted source and required by policy.','Remove unused or unverified decorators.','Pin tasks to a specific version where the marketplace supports it.')
         DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/security/overview'
@@ -349,5 +381,25 @@
     'Usage History Review' = @{
         Steps = @('Navigate to Project Settings > Service connections.','For each service connection, click the three dots > Usage history.','Review which pipelines have used the connection recently.','Remove or disable any service connection that is no longer in use.','Schedule a recurring review (e.g. quarterly).')
         DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints'
+    }
+    'Release Authorization Scope' = @{
+        Steps = @('Open the release pipeline definition.','Click the three dots > Settings (Options for classic releases).','Set "Release job authorization scope" to "Current project".','Save the pipeline.','Repeat for every release pipeline flagged.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/security/secure-access-to-repos'
+    }
+    'Per-Repository Credentials & Secrets Policy' = @{
+        Steps = @('Navigate to Project Settings > Repos > Repositories.','Select the flagged repository.','Open the Policies tab.','Enable "Push protection" via GitHub Advanced Security for Azure DevOps (GHAzDO) or add a credential-scanner branch policy targeting the default branch.','Confirm the policy is enabled (not just defined) and scoped to the default branch.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/repos/security/github-advanced-security-secret-scanning'
+    }
+    'Per-Repository Author Email Validation' = @{
+        Steps = @('Navigate to Project Settings > Repos > Repositories.','Select the flagged repository.','Open the Policies tab.','Under Branch Policies for the default branch, turn On "Commit author email validation".','Configure the allowed email pattern (e.g. *@yourcompany.com).')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/repos/git/repository-settings#commit-author-email-validation-policy'
+    }
+    'Multiple Approvers on Production' = @{
+        Steps = @('Navigate to Project > Pipelines > Environments.','Select the production environment.','Open Approvals and checks.','Edit the Approval check.','Add at least 2 distinct approvers (users or a group) and set "Minimum number of approvers required" to 2 or higher.','Enable "Requestor should not be an approver" to prevent self-approval.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals'
+    }
+    'Branch Control on Production' = @{
+        Steps = @('Navigate to Project > Pipelines > Environments > [production environment] > Approvals and checks.','Click "Add" and select "Branch control".','Set Allowed branches to refs/heads/main (or your protected production branch).','Enable "Ensure protection of the branch" so the check also fails if branch policies are missing.','Validate by attempting a deployment from a non-allowed branch and confirming it is blocked.')
+        DocUrl = 'https://learn.microsoft.com/en-us/azure/devops/pipelines/process/approvals'
     }
 }

@@ -26,7 +26,7 @@ in VS Code.
 > step-by-step remediation, and links to Microsoft Learn.
 
 Azure DevOps Quick Review evaluates your ADO resources across the following
-areas, with 115+ individual best-practice checks:
+areas, with 120+ individual best-practice checks:
 
 | Category | Scope | Examples |
 |---|---|---|
