@@ -1625,7 +1625,8 @@ function Write-RemediationHtmlReport {
         $sevBg = switch ($r.Severity) { 'High' { 'rgba(239,68,68,.12)' } 'Medium' { 'rgba(245,158,11,.12)' } 'Low' { 'rgba(59,130,246,.12)' } }
         $affectedList = ($r.AffectedAreas | ForEach-Object { "<li>$([System.Web.HttpUtility]::HtmlEncode($_))</li>" }) -join ''
         $pctOfTotal = if ($totalIssues -gt 0) { [math]::Round(($r.Count / $totalIssues) * 100) } else { 0 }
-        $controlKey = '{0}|{1}' -f ($r.ControlId ?? ''), $r.ControlName
+        $controlIdPart = if ($r.ControlId) { $r.ControlId } else { '' }
+        $controlKey = '{0}|{1}' -f $controlIdPart, $r.ControlName
         $controlKeyAttr = [System.Web.HttpUtility]::HtmlAttributeEncode($controlKey)
         $noteId = "accepted-note-$rank"
 
@@ -1671,7 +1672,7 @@ function Write-RemediationHtmlReport {
               <button type="button" class="remed-btn remed-btn-link" data-unaccept hidden>Return to remediation actions</button>
             </div>
             <div class="remed-accept-form" data-accept-form hidden>
-              <label class="remed-accept-label" for="$noteId">Why is this control being accepted?</label>
+              <label class="remed-accept-label" for="$noteId">Reason for accepting this control</label>
               <textarea id="$noteId" class="remed-accept-text" rows="3" maxlength="1000" aria-required="true" placeholder="Describe the accepted risk, business justification, and approval context." data-accept-note></textarea>
               <p class="remed-accept-error" data-accept-error hidden>Please enter a description before accepting this control.</p>
               <div class="remed-accept-form-actions">
