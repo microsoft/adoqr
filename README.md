@@ -1,4 +1,6 @@
-<img src="assets/adoqr_logo.png" alt="adoqr logo" width="600" />
+<p align="center">
+<img src="assets/adoqr_logo.png" alt="adoqr logo" width="400" />
+</p>
 
 # Azure DevOps Quick Review
 
