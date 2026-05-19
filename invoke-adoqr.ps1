@@ -3878,9 +3878,18 @@ function Test-AgentPools {
             $results.Add((New-ControlResult -Id "AP-02" -Status "NOT CHECKED" -Severity "Medium" -Control "Hardened OS Image" -Finding "$prefix — Self-hosted pool. Manual review required for OS hardening."))
         }
 
-        # AP-04: Auto-provisioning
-        if ($pool.autoProvision -eq $true) {
-            $results.Add((New-ControlResult -Id "AP-04" -Status "FAIL" -Severity "High" -Control "Auto-Provisioning Disabled" -Finding "$prefix — Auto-provision is enabled. Disable and grant access per-project."))
+        # AP-04: Auto-provisioning.
+        # Only flag self-hosted pools. Microsoft-hosted pools (Azure Pipelines,
+        # Hosted macOS, Hosted Ubuntu, Hosted Windows, etc.) default to
+        # autoProvision=true by design — they are isolated, ephemeral VMs
+        # managed by Microsoft, so auto-provisioning to new projects does not
+        # expand the customer's attack surface in a meaningful way. The
+        # AzSK/SDL control targets self-hosted pools where auto-provision
+        # could expose a customer-managed build farm to new projects.
+        if ($pool.isHosted -eq $true) {
+            $results.Add((New-ControlResult -Id "AP-04" -Status "PASS" -Severity "High" -Control "Auto-Provisioning Disabled" -Finding "$prefix — Microsoft-hosted pool; auto-provision is Microsoft-managed and not a customer-side security concern."))
+        } elseif ($pool.autoProvision -eq $true) {
+            $results.Add((New-ControlResult -Id "AP-04" -Status "FAIL" -Severity "High" -Control "Auto-Provisioning Disabled" -Finding "$prefix — Auto-provision is enabled on a self-hosted pool. Disable and grant access per-project."))
         } else {
             $results.Add((New-ControlResult -Id "AP-04" -Status "PASS" -Severity "High" -Control "Auto-Provisioning Disabled" -Finding "$prefix — Auto-provision is disabled."))
         }
