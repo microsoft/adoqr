@@ -70,3 +70,71 @@ Describe 'Build-NotCheckedSectionHtml' {
         $html | Should -Not -Match '<details[^>]*\bopen\b[^>]*class="[^"]*\bsection-collapsible\b'
     }
 }
+
+Describe 'Write-ExecutiveHtmlReport' {
+    It 'embeds accepted-risk recalculation hooks for the executive summary' {
+        $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
+        New-Item -ItemType Directory -Path $tempDir | Out-Null
+        $filePath = Join-Path $tempDir 'executive.html'
+
+        $orgSummary = [PSCustomObject]@{
+            Pass = 1
+            Fail = 1
+            NotChecked = 0
+            ReportFile = 'org.md'
+            Results = @(
+                (New-Result 'AUTH-01' 'PASS' 'High' 'AAD Authentication' 'Organization is Azure AD backed.'),
+                (New-Result 'AUTH-05' 'FAIL' 'Medium' 'Conditional Access Policy' 'Conditional access is not enforced.')
+            )
+        }
+
+        $projectSummary = [PSCustomObject]@{
+            Project = 'Web'
+            Pass = 0
+            Fail = 1
+            NotChecked = 1
+            ReportFile = 'web.md'
+            Results = @(
+                (New-Result 'REPO-01' 'FAIL' 'High' 'Inactive Repositories' 'Repository is stale.'),
+                (New-Result 'AUDIT-01' 'NOT CHECKED' 'Medium' 'Audit Log Backup' 'Manual review required.')
+            )
+        }
+
+        $remediations = @(
+            [PSCustomObject]@{
+                ControlId = 'AUTH-05'
+                ControlName = 'Conditional Access Policy'
+                Severity = 'Medium'
+                Count = 1
+                AffectedAreas = @('Organization')
+                Finding = 'Conditional access is not enforced.'
+            },
+            [PSCustomObject]@{
+                ControlId = 'REPO-01'
+                ControlName = 'Inactive Repositories'
+                Severity = 'High'
+                Count = 1
+                AffectedAreas = @('Project: Web')
+                Finding = 'Repository is stale.'
+            }
+        )
+
+        try {
+            Write-ExecutiveHtmlReport -FilePath $filePath -OrgName 'Contoso' -OrgUrl 'https://dev.azure.com/Contoso' -ElapsedTime '00:00:05' -OrgSummary $orgSummary -ProjectSummaries @($projectSummary) -TopRemediations $remediations
+
+            $html = Get-Content -Path $filePath -Raw
+            $html | Should -Match 'adoqr\.acceptedControls\.Contoso'
+            $html | Should -Match 'window\.__adoqrCurrentRunControls\s*='
+            $html | Should -Match 'window\.__adoqrTopRemediations\s*='
+            $html | Should -Match 'data-summary-pass'
+            $html | Should -Match 'data-summary-fail'
+            $html | Should -Match 'data-org-fail'
+            $html | Should -Match 'data-project-row="Web"'
+            $html | Should -Match 'function applyAcceptedSummary'
+            $html | Should -Match 'visibilitychange'
+        }
+        finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}

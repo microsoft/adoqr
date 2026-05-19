@@ -29,6 +29,7 @@ $wantedFns = @(
     'Build-NotCheckedSectionHtml'
     'Get-RemediationSteps'
     'Write-RemediationHtmlReport'
+    'Write-ExecutiveHtmlReport'
     'Get-AdoqrLogoDataUri'
     'Get-AdoqrHeaderCss'
     'Get-AdoqrHeaderHtml'

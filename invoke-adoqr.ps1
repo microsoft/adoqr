@@ -1669,7 +1669,7 @@ function Write-RemediationHtmlReport {
           <div class="remed-acceptance">
             <div class="remed-acceptance-actions">
               <button type="button" class="remed-btn remed-btn-secondary" data-open-accept>Accept risk</button>
-              <button type="button" class="remed-btn remed-btn-link" data-unaccept hidden>Return to remediation actions</button>
+                            <button type="button" class="remed-btn remed-btn-secondary" data-unaccept hidden>Undo acceptance</button>
             </div>
             <div class="remed-accept-form" data-accept-form hidden>
               <label class="remed-accept-label" for="$noteId">Reason for accepting this control</label>
@@ -1903,7 +1903,7 @@ $headerHtml
         </div>
       </div>
       <div id="panel-accepted-controls" role="tabpanel" aria-labelledby="tab-accepted-controls" data-remed-panel="accepted" hidden>
-        <p class="remed-tab-panel-note">Accepted controls keep the business justification and the acceptance date together for later review.</p>
+                <p class="remed-tab-panel-note">Accepted controls keep the business justification and the acceptance date together for later review. Use <strong>Undo acceptance</strong> to move a control back into the active remediation list.</p>
         <div id="remed-accepted-list"></div>
         <p class="remed-empty" id="accepted-controls-empty">No controls have been accepted yet.</p>
       </div>
@@ -2270,17 +2270,17 @@ function Write-ExecutiveHtmlReport {
                    else { '<span class="badge badge-info">MINOR</span>' }
         $mdFile = [System.IO.Path]::GetFileName($p.ReportFile)
         [void]$projectRows.AppendLine(@"
-              <tr>
+                            <tr data-project-row="$([System.Web.HttpUtility]::HtmlAttributeEncode($p.Project))">
                 <td><strong>$([System.Web.HttpUtility]::HtmlEncode($p.Project))</strong></td>
-                <td class="num">$($p.Pass)</td>
-                <td class="num fail-text">$($p.Fail)</td>
-                <td class="num">$($p.NotChecked)</td>
+                                <td class="num" data-project-pass>$($p.Pass)</td>
+                                <td class="num fail-text" data-project-fail>$($p.Fail)</td>
+                                <td class="num" data-project-notchecked>$($p.NotChecked)</td>
                 <td>
-                  <div class="bar-track" role="progressbar" aria-valuenow="$pPassPct" aria-valuemin="0" aria-valuemax="100" aria-label="$pPassPct percent adopted">
-                    <div class="bar-fill" style="width:${pPassPct}%"></div>
+                                    <div class="bar-track" data-project-adoption role="progressbar" aria-valuenow="$pPassPct" aria-valuemin="0" aria-valuemax="100" aria-label="$pPassPct percent adopted">
+                                        <div class="bar-fill" data-project-adoption-fill style="width:${pPassPct}%"></div>
                   </div>
                 </td>
-                <td>$pStatus</td>
+                                <td data-project-status>$pStatus</td>
                 <td><a href="$([System.Web.HttpUtility]::HtmlAttributeEncode($mdFile))">Details</a></td>
               </tr>
 "@)
@@ -2303,6 +2303,58 @@ function Write-ExecutiveHtmlReport {
 
     $orgMdFile = [System.IO.Path]::GetFileName($OrgSummary.ReportFile)
     $notCheckedHtml = Build-NotCheckedSectionHtml -OrgSummary $OrgSummary -ProjectSummaries $ProjectSummaries
+
+    $acceptedStorageKeyJson = ("adoqr.acceptedControls.$OrgName" | ConvertTo-Json -Compress)
+
+    $currentRunControls = [System.Collections.Generic.List[PSCustomObject]]::new()
+    if ($OrgSummary -and $OrgSummary.PSObject.Properties['Results'] -and $OrgSummary.Results) {
+        foreach ($r in @($OrgSummary.Results)) {
+            $currentRunControls.Add([PSCustomObject]@{
+                key    = ('{0}|{1}' -f $r.Id, $r.Control)
+                id     = $r.Id
+                control = $r.Control
+                status = $r.Status
+                scope  = [PSCustomObject]@{
+                    type    = 'organization'
+                    project = $null
+                }
+            })
+        }
+    }
+    foreach ($p in @($ProjectSummaries)) {
+        if (-not ($p.PSObject.Properties['Results']) -or -not $p.Results) { continue }
+        foreach ($r in @($p.Results)) {
+            $currentRunControls.Add([PSCustomObject]@{
+                key     = ('{0}|{1}' -f $r.Id, $r.Control)
+                id      = $r.Id
+                control = $r.Control
+                status  = $r.Status
+                scope   = [PSCustomObject]@{
+                    type    = 'project'
+                    project = $p.Project
+                }
+            })
+        }
+    }
+
+    $currentRunControlsJson = ($currentRunControls | ConvertTo-Json -Depth 6 -Compress)
+    if (-not $currentRunControlsJson) { $currentRunControlsJson = '[]' }
+    if ($currentRunControlsJson.TrimStart()[0] -ne '[') { $currentRunControlsJson = "[$currentRunControlsJson]" }
+    $currentRunControlsJson = $currentRunControlsJson -replace '</script>', '<\/script>'
+
+    $remediationPayload = @($TopRemediations | ForEach-Object {
+        [PSCustomObject]@{
+            key           = ('{0}|{1}' -f $_.ControlId, $_.ControlName)
+            controlName   = $_.ControlName
+            severity      = $_.Severity
+            count         = $_.Count
+            affectedAreas = @($_.AffectedAreas)
+        }
+    })
+    $remediationPayloadJson = ($remediationPayload | ConvertTo-Json -Depth 6 -Compress)
+    if (-not $remediationPayloadJson) { $remediationPayloadJson = '[]' }
+    if ($remediationPayloadJson.TrimStart()[0] -ne '[') { $remediationPayloadJson = "[$remediationPayloadJson]" }
+    $remediationPayloadJson = $remediationPayloadJson -replace '</script>', '<\/script>'
 
     # Branded header (shared with remediation plan + controls reference)
     $orgUrlDisplay   = $OrgUrl -replace '^https?://', ''
@@ -2664,50 +2716,50 @@ $headerHtml
 
   <main id="main" class="container">
 
-    <!-- KPI Cards -->
-    <div class="cards" role="list">
-      <div class="card card-risk" role="listitem">
-        <div class="card-value" aria-label="Adoption level $riskLevel">$riskLevel</div>
-        <div class="card-label">Best Practice Adoption</div>
-      </div>
-      <div class="card card-pass" role="listitem">
-        <div class="card-value">$totalPass</div>
-        <div class="card-label">Best Practices Adopted</div>
-      </div>
-      <div class="card card-fail" role="listitem">
-        <div class="card-value">$totalFail</div>
-        <div class="card-label">Improvement Opportunities</div>
-      </div>
-      <div class="card card-nc" role="listitem">
-                <div class="card-value" title="Controls that need more context, permissions, configuration data, or manual confirmation before a PASS/FAIL determination.">$totalNC</div>
-        <div class="card-label">Not Checked</div>
-      </div>
-    </div>
+        <!-- KPI Cards -->
+        <div class="cards" role="list">
+            <div class="card card-risk" role="listitem">
+                <div class="card-value" data-summary-risk aria-label="Adoption level $riskLevel">$riskLevel</div>
+                <div class="card-label">Best Practice Adoption</div>
+            </div>
+            <div class="card card-pass" role="listitem">
+                <div class="card-value" data-summary-pass>$totalPass</div>
+                <div class="card-label">Best Practices Adopted</div>
+            </div>
+            <div class="card card-fail" role="listitem">
+                <div class="card-value" data-summary-fail>$totalFail</div>
+                <div class="card-label">Improvement Opportunities</div>
+            </div>
+            <div class="card card-nc" role="listitem">
+                <div class="card-value" data-summary-notchecked title="Controls that need more context, permissions, configuration data, or manual confirmation before a PASS/FAIL determination.">$totalNC</div>
+                <div class="card-label">Not Checked</div>
+            </div>
+        </div>
 
-    <!-- Adoption Ring -->
-    <section class="section section-accent-pass" id="adoption" aria-label="Best practice adoption overview">
-      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Overview</p>
-      <h2>Best Practice Adoption</h2>
-      <div class="ring-container">
-        <div class="ring" role="img" aria-label="$passPct percent of best practices adopted">
-          <svg viewBox="0 0 140 140" width="140" height="140">
-            <circle cx="70" cy="70" r="60" fill="none" stroke="var(--surface2)" stroke-width="12"/>
-            <circle cx="70" cy="70" r="60" fill="none" stroke="var(--pass)" stroke-width="12"
-                    stroke-dasharray="$([math]::Round(377 * $passPct / 100)) 377"
-                    stroke-linecap="round"/>
-          </svg>
-          <span class="ring-label">${passPct}%</span>
-        </div>
-        <div>
-          <p style="margin:0"><strong>$totalControls</strong> best practices evaluated across <strong>$totalProjects</strong> projects</p>
-          <p style="margin:.25rem 0;color:var(--text2)">
-            <span style="color:var(--pass)">&#9679; $totalPass adopted ($passPct%)</span> &nbsp;
-            <span style="color:var(--fail)">&#9679; $totalFail opportunities ($failPct%)</span> &nbsp;
-            <span style="color:var(--warn)">&#9679; $totalNC not checked ($ncPct%)</span>
-          </p>
-        </div>
-      </div>
-    </section>
+        <!-- Adoption Ring -->
+        <section class="section section-accent-pass" id="adoption" aria-label="Best practice adoption overview">
+            <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Overview</p>
+            <h2>Best Practice Adoption</h2>
+            <div class="ring-container">
+                <div class="ring" role="img" aria-label="$passPct percent of best practices adopted">
+                    <svg viewBox="0 0 140 140" width="140" height="140">
+                        <circle cx="70" cy="70" r="60" fill="none" stroke="var(--surface2)" stroke-width="12"/>
+                        <circle data-adoption-ring-fill cx="70" cy="70" r="60" fill="none" stroke="var(--pass)" stroke-width="12"
+                                        stroke-dasharray="$([math]::Round(377 * $passPct / 100)) 377"
+                                        stroke-linecap="round"/>
+                    </svg>
+                    <span class="ring-label" data-adoption-pass-pct>${passPct}%</span>
+                </div>
+                <div>
+                    <p style="margin:0"><strong data-total-controls>$totalControls</strong> best practices evaluated across <strong data-total-projects>$totalProjects</strong> projects</p>
+                    <p style="margin:.25rem 0;color:var(--text2)">
+                        <span style="color:var(--pass)">&#9679; <span data-overview-pass>$totalPass</span> adopted (<span data-overview-pass-pct>${passPct}%</span>)</span> &nbsp;
+                        <span style="color:var(--fail)">&#9679; <span data-overview-fail>$totalFail</span> opportunities (<span data-overview-fail-pct>${failPct}%</span>)</span> &nbsp;
+                        <span style="color:var(--warn)">&#9679; <span data-overview-notchecked>$totalNC</span> not checked (<span data-overview-notchecked-pct>${ncPct}%</span>)</span>
+                    </p>
+                </div>
+            </div>
+        </section>
 
     <!-- Priority Remediation Actions -->
     $(if ($TopRemediations -and $TopRemediations.Count -gt 0) {
@@ -2741,11 +2793,12 @@ $headerHtml
     <section class="section section-accent-fail" id="top-remediations" aria-label="Top remediation actions">
       <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Top actions</p>
       <h2>Top 5 Remediation Actions</h2>
-      <p style="color:var(--text2);margin-bottom:1rem">Adopting these 5 actions addresses <strong style="color:var(--text)">$top5Count</strong> of <strong style="color:var(--text)">$totalRemedIssues</strong> total items (<strong style="color:var(--text)">${top5Pct}%</strong>).
+            <p style="color:var(--text2);margin-bottom:1rem" data-top-remediations-summary>Adopting these 5 actions addresses <strong style="color:var(--text)" data-top-remediations-top-count>$top5Count</strong> of <strong style="color:var(--text)" data-top-remediations-total-count>$totalRemedIssues</strong> total items (<strong style="color:var(--text)" data-top-remediations-top-pct>${top5Pct}%</strong>).
         <a href="$remedFileName">View full remediation plan &rarr;</a></p>
-      <ol class="action-list">
+            <ol class="action-list" data-top-remediations-list>
         $($remedHtml.ToString())
       </ol>
+            <p class="cmp-empty" data-top-remediations-empty hidden>All remediation actions in the current top 5 have been accepted.</p>
     </section>
 "@
     })
@@ -2756,55 +2809,56 @@ $headerHtml
     <section class="section section-accent-warn" id="hot-spots" aria-label="Priority actions by project">
       <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Hot spots</p>
       <h2>Projects With Improvement Opportunities</h2>
-      <ol class="action-list">
+            <ol class="action-list" data-hot-spots-list>
         $($topFailHtml.ToString())
       </ol>
+            <p class="cmp-empty" data-hot-spots-empty hidden>No projects currently have active improvement opportunities.</p>
     </section>
 "@
     })
 
-    <!-- Organization -->
-    <section class="section section-accent-accent" id="organization" aria-label="Organization review">
-      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Organization</p>
-      <h2>Organization Review</h2>
-      <div class="org-summary">
-        <div>
-          <strong>$([System.Web.HttpUtility]::HtmlEncode($OrgName))</strong>
-          <span style="color:var(--text2);margin-left:.5rem">
-            <a href="$([System.Web.HttpUtility]::HtmlAttributeEncode($orgMdFile))">Full Report</a>
-          </span>
-        </div>
-        <div class="org-stats">
-          <div class="stat"><div class="stat-val" style="color:var(--pass)">$($OrgSummary.Pass)</div><div class="stat-lbl">Adopted</div></div>
-          <div class="stat"><div class="stat-val" style="color:var(--fail)">$($OrgSummary.Fail)</div><div class="stat-lbl">Opportunities</div></div>
-          <div class="stat"><div class="stat-val" style="color:var(--warn)">$($OrgSummary.NotChecked)</div><div class="stat-lbl">Not Checked</div></div>
-        </div>
-      </div>
-    </section>
+        <!-- Organization -->
+        <section class="section section-accent-accent" id="organization" aria-label="Organization review">
+            <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Organization</p>
+            <h2>Organization Review</h2>
+            <div class="org-summary">
+                <div>
+                    <strong>$([System.Web.HttpUtility]::HtmlEncode($OrgName))</strong>
+                    <span style="color:var(--text2);margin-left:.5rem">
+                        <a href="$([System.Web.HttpUtility]::HtmlAttributeEncode($orgMdFile))">Full Report</a>
+                    </span>
+                </div>
+                <div class="org-stats">
+                    <div class="stat"><div class="stat-val" data-org-pass style="color:var(--pass)">$($OrgSummary.Pass)</div><div class="stat-lbl">Adopted</div></div>
+                    <div class="stat"><div class="stat-val" data-org-fail style="color:var(--fail)">$($OrgSummary.Fail)</div><div class="stat-lbl">Opportunities</div></div>
+                    <div class="stat"><div class="stat-val" data-org-notchecked style="color:var(--warn)">$($OrgSummary.NotChecked)</div><div class="stat-lbl">Not Checked</div></div>
+                </div>
+            </div>
+        </section>
 
-    <!-- Project Table -->
-    <section class="section section-accent-accent" id="project-results" aria-label="Project results">
-      <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Projects</p>
-      <h2>Project Results</h2>
-      <div class="tbl-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Project</th>
-              <th scope="col" class="num">Adopted</th>
-              <th scope="col" class="num">Opportunities</th>
-              <th scope="col" class="num">Not Checked</th>
-              <th scope="col">Adoption</th>
-              <th scope="col">Status</th>
-              <th scope="col">Report</th>
-            </tr>
-          </thead>
-          <tbody>
-            $($projectRows.ToString())
-          </tbody>
-        </table>
-      </div>
-    </section>
+        <!-- Project Table -->
+        <section class="section section-accent-accent" id="project-results" aria-label="Project results">
+            <p class="section-eyebrow"><span class="section-eyebrow-dot"></span>Projects</p>
+            <h2>Project Results</h2>
+            <div class="tbl-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Project</th>
+                            <th scope="col" class="num">Adopted</th>
+                            <th scope="col" class="num">Opportunities</th>
+                            <th scope="col" class="num">Not Checked</th>
+                            <th scope="col">Adoption</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Report</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        $($projectRows.ToString())
+                    </tbody>
+                </table>
+            </div>
+        </section>
 
     $notCheckedHtml
 
@@ -2818,8 +2872,162 @@ $headerHtml
     <p>Reference: <a href="https://microsoft.github.io/adoqr/controls.html" target="_blank" rel="noopener noreferrer">https://microsoft.github.io/adoqr/controls.html</a></p>
   </footer>
 
-  <script>
-    (function () {
+    <script>
+        window.__adoqrCurrentRunControls = $currentRunControlsJson;
+        window.__adoqrTopRemediations = $remediationPayloadJson;
+
+        (function () {
+            var storageKey = $acceptedStorageKeyJson;
+            var controls = window.__adoqrCurrentRunControls || [];
+            if (!controls.length) { return; }
+
+            function readState() {
+                try {
+                    var raw = window.localStorage ? window.localStorage.getItem(storageKey) : null;
+                    if (!raw) { return {}; }
+                    var parsed = JSON.parse(raw);
+                    return parsed && typeof parsed === 'object' ? parsed : {};
+                } catch (e) {
+                    return {};
+                }
+            }
+
+            function controlKey(control) {
+                return String(control.id || '') + '|' + String(control.control || '');
+            }
+
+            function percent(value, total) {
+                return total > 0 ? Math.round((value * 100) / total) : 0;
+            }
+
+            function riskLevel(totalFail, projectMap) {
+                var highFailProjects = Object.keys(projectMap).filter(function (name) {
+                    return (projectMap[name].fail || 0) > 20;
+                }).length;
+                if (totalFail > 100 || highFailProjects > 5) { return 'Limited'; }
+                if (totalFail > 50 || highFailProjects > 2) { return 'Partial'; }
+                if (totalFail > 20) { return 'Good'; }
+                return 'Strong';
+            }
+
+            function statusBadge(failCount) {
+                if (failCount === 0) { return '<span class="badge badge-pass">EXEMPLARY</span>'; }
+                if (failCount > 15) { return '<span class="badge badge-fail">PRIORITY</span>'; }
+                if (failCount > 5) { return '<span class="badge badge-warn">REVIEW</span>'; }
+                return '<span class="badge badge-info">MINOR</span>'; }
+
+            function summarize(state) {
+                var summary = {
+                    pass: 0,
+                    fail: 0,
+                    notChecked: 0,
+                    organization: { pass: 0, fail: 0, notChecked: 0 },
+                    projects: {}
+                };
+
+                controls.forEach(function (control) {
+                    if (state[controlKey(control)]) { return; }
+
+                    var bucket = summary.organization;
+                    if (control.scope && control.scope.type === 'project') {
+                        var projectName = control.scope.project || '';
+                        if (!summary.projects[projectName]) {
+                            summary.projects[projectName] = { pass: 0, fail: 0, notChecked: 0 };
+                        }
+                        bucket = summary.projects[projectName];
+                    }
+
+                    if (control.status === 'PASS') {
+                        summary.pass += 1;
+                        bucket.pass += 1;
+                    } else if (control.status === 'FAIL') {
+                        summary.fail += 1;
+                        bucket.fail += 1;
+                    } else if (control.status === 'NOT CHECKED') {
+                        summary.notChecked += 1;
+                        bucket.notChecked += 1;
+                    }
+                });
+
+                return summary;
+            }
+
+            function updateText(selector, value) {
+                var el = document.querySelector(selector);
+                if (el) { el.textContent = value; }
+            }
+
+            function applyAcceptedSummary() {
+                var summary = summarize(readState());
+                var total = summary.pass + summary.fail + summary.notChecked;
+                var passPct = percent(summary.pass, total);
+                var failPct = percent(summary.fail, total);
+                var notCheckedPct = percent(summary.notChecked, total);
+                var risk = riskLevel(summary.fail, summary.projects);
+
+                updateText('[data-summary-pass]', summary.pass);
+                updateText('[data-summary-fail]', summary.fail);
+                updateText('[data-summary-notchecked]', summary.notChecked);
+                updateText('[data-summary-risk]', risk);
+                updateText('[data-total-controls]', total);
+                updateText('[data-overview-pass]', summary.pass);
+                updateText('[data-overview-pass-pct]', passPct + '%');
+                updateText('[data-overview-fail]', summary.fail);
+                updateText('[data-overview-fail-pct]', failPct + '%');
+                updateText('[data-overview-notchecked]', summary.notChecked);
+                updateText('[data-overview-notchecked-pct]', notCheckedPct + '%');
+                updateText('[data-org-pass]', summary.organization.pass);
+                updateText('[data-org-fail]', summary.organization.fail);
+                updateText('[data-org-notchecked]', summary.organization.notChecked);
+
+                var riskEl = document.querySelector('[data-summary-risk]');
+                if (riskEl) { riskEl.setAttribute('aria-label', 'Adoption level ' + risk); }
+
+                var ringFill = document.querySelector('[data-adoption-ring-fill]');
+                var ringLabel = document.querySelector('[data-adoption-pass-pct]');
+                var ring = document.querySelector('.ring');
+                if (ringFill) { ringFill.setAttribute('stroke-dasharray', Math.round(377 * passPct / 100) + ' 377'); }
+                if (ringLabel) { ringLabel.textContent = passPct + '%'; }
+                if (ring) { ring.setAttribute('aria-label', passPct + ' percent of best practices adopted'); }
+
+                Array.prototype.forEach.call(document.querySelectorAll('[data-project-row]'), function (row) {
+                    var name = row.getAttribute('data-project-row') || '';
+                    var project = summary.projects[name] || { pass: 0, fail: 0, notChecked: 0 };
+                    var projectTotal = project.pass + project.fail + project.notChecked;
+                    var projectPassPct = percent(project.pass, projectTotal);
+                    var passEl = row.querySelector('[data-project-pass]');
+                    var failEl = row.querySelector('[data-project-fail]');
+                    var notCheckedEl = row.querySelector('[data-project-notchecked]');
+                    var adoptionEl = row.querySelector('[data-project-adoption]');
+                    var adoptionFill = row.querySelector('[data-project-adoption-fill]');
+                    var statusEl = row.querySelector('[data-project-status]');
+                    if (passEl) { passEl.textContent = project.pass; }
+                    if (failEl) { failEl.textContent = project.fail; }
+                    if (notCheckedEl) { notCheckedEl.textContent = project.notChecked; }
+                    if (adoptionEl) {
+                        adoptionEl.setAttribute('aria-valuenow', String(projectPassPct));
+                        adoptionEl.setAttribute('aria-label', projectPassPct + ' percent adopted');
+                    }
+                    if (adoptionFill) { adoptionFill.style.width = projectPassPct + '%'; }
+                    if (statusEl) { statusEl.innerHTML = statusBadge(project.fail); }
+                });
+            }
+
+            window.addEventListener('storage', function (event) {
+                if (!event.key || event.key === storageKey) {
+                    applyAcceptedSummary();
+                }
+            });
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden) {
+                    applyAcceptedSummary();
+                }
+            });
+
+            applyAcceptedSummary();
+        }());
+
+        (function () {
       var nav = document.querySelector('.section-nav');
       if (!nav) { return; }
       var links = Array.prototype.slice.call(nav.querySelectorAll('a[data-target]'));
@@ -2870,6 +3078,210 @@ $headerHtml
       window.addEventListener('beforeprint', function () { setAll(true); });
       window.addEventListener('afterprint', function () { setAll(false); });
     }());
+
+        (function () {
+            var storageKey = $acceptedStorageKeyJson;
+            var controls = window.__adoqrCurrentRunControls || [];
+            var remediations = window.__adoqrTopRemediations || [];
+            if (!controls.length) { return; }
+
+            function readAcceptedState() {
+                try {
+                    var raw = window.localStorage ? window.localStorage.getItem(storageKey) : null;
+                    if (!raw) { return {}; }
+                    var parsed = JSON.parse(raw);
+                    return parsed && typeof parsed === 'object' ? parsed : {};
+                } catch (e) {
+                    return {};
+                }
+            }
+
+            function summarizeControls(state) {
+                var summary = {
+                    global: { pass: 0, fail: 0, notChecked: 0, accepted: 0 },
+                    org: { pass: 0, fail: 0, notChecked: 0, accepted: 0 },
+                    projects: {}
+                };
+
+                controls.forEach(function (control) {
+                    var projectName = control.scope && control.scope.type === 'project' ? control.scope.project : null;
+                    var bucket = projectName ? (summary.projects[projectName] = summary.projects[projectName] || { pass: 0, fail: 0, notChecked: 0, accepted: 0 }) : summary.org;
+                    var isAcceptedFail = !!state[control.key] && control.status === 'FAIL';
+
+                    if (isAcceptedFail) {
+                        summary.global.accepted += 1;
+                        bucket.accepted += 1;
+                        return;
+                    }
+
+                    if (control.status === 'PASS') {
+                        summary.global.pass += 1;
+                        bucket.pass += 1;
+                    } else if (control.status === 'FAIL') {
+                        summary.global.fail += 1;
+                        bucket.fail += 1;
+                    } else if (control.status === 'NOT CHECKED') {
+                        summary.global.notChecked += 1;
+                        bucket.notChecked += 1;
+                    }
+                });
+
+                return summary;
+            }
+
+            function getRiskLevel(totalFail, projects) {
+                var highFailProjects = Object.keys(projects).filter(function (name) {
+                    return (projects[name].fail || 0) > 20;
+                }).length;
+                if (totalFail > 100 || highFailProjects > 5) { return 'Limited'; }
+                if (totalFail > 50 || highFailProjects > 2) { return 'Partial'; }
+                if (totalFail > 20) { return 'Good'; }
+                return 'Strong';
+            }
+
+            function riskColor(level) {
+                if (level === 'Limited') { return '#dc2626'; }
+                if (level === 'Partial') { return '#ea580c'; }
+                if (level === 'Good') { return '#d97706'; }
+                return '#16a34a';
+            }
+
+            function updateText(selector, value) {
+                var el = document.querySelector(selector);
+                if (el) { el.textContent = value; }
+            }
+
+            function updateHtml(selector, value) {
+                var el = document.querySelector(selector);
+                if (el) { el.innerHTML = value; }
+            }
+
+            function renderProjectStatus(failCount) {
+                if (failCount === 0) { return '<span class="badge badge-pass">EXEMPLARY</span>'; }
+                if (failCount > 15) { return '<span class="badge badge-fail">PRIORITY</span>'; }
+                if (failCount > 5) { return '<span class="badge badge-warn">REVIEW</span>'; }
+                return '<span class="badge badge-info">MINOR</span>';
+            }
+
+            function renderTopRemediationItem(item, rank) {
+                var urgency = item.severity === 'High' ? 'urgent' : item.severity === 'Medium' ? 'warning' : 'info';
+                var color = item.severity === 'High' ? 'var(--fail)' : item.severity === 'Medium' ? 'var(--warn)' : 'var(--info)';
+                var areaCount = (item.affectedAreas || []).length;
+                return '<li class="action-item action-' + urgency + '">' 
+                    + '<span class="action-rank">#' + rank + '</span>'
+                    + '<div style="flex:1"><strong>' + item.controlName.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</strong>'
+                    + '<span style="color:var(--text2);font-size:.85rem;margin-left:.5rem">' + areaCount + ' area' + (areaCount === 1 ? '' : 's') + ' affected</span></div>'
+                    + '<div style="text-align:right;min-width:80px"><span style="font-size:1.25rem;font-weight:800;color:' + color + '">' + item.count + '</span>'
+                    + '<span style="font-size:.75rem;color:var(--text2);display:block">issue' + (item.count === 1 ? '' : 's') + '</span></div></li>';
+            }
+
+            function renderHotSpot(projectName, failCount, rank) {
+                var urgency = failCount > 15 ? 'urgent' : failCount > 5 ? 'warning' : 'info';
+                return '<li class="action-item action-' + urgency + '"><span class="action-rank">#' + rank + '</span><strong>'
+                    + projectName.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                    + '</strong> &mdash; ' + failCount + ' best practice' + (failCount === 1 ? '' : 's') + ' to adopt</li>';
+            }
+
+            function refreshExecutiveSummary() {
+                var state = readAcceptedState();
+                var summary = summarizeControls(state);
+                var accepted = summary.global.accepted;
+                var totalControls = summary.global.pass + summary.global.fail + summary.global.notChecked + accepted;
+                var passPct = totalControls > 0 ? Math.round((summary.global.pass * 100) / totalControls) : 0;
+                var failPct = totalControls > 0 ? Math.round((summary.global.fail * 100) / totalControls) : 0;
+                var ncPct = totalControls > 0 ? Math.round((summary.global.notChecked * 100) / totalControls) : 0;
+                var level = getRiskLevel(summary.global.fail, summary.projects);
+
+                updateText('[data-kpi-risk]', level);
+                var riskEl = document.querySelector('[data-kpi-risk]');
+                if (riskEl) {
+                    riskEl.style.color = riskColor(level);
+                    riskEl.setAttribute('aria-label', 'Adoption level ' + level);
+                }
+                updateText('[data-kpi-pass]', summary.global.pass);
+                updateText('[data-kpi-fail]', summary.global.fail);
+                updateText('[data-kpi-nc]', summary.global.notChecked);
+                updateText('[data-kpi-accepted]', accepted);
+
+                var acceptedCard = document.querySelector('[data-kpi-accepted-card]');
+                if (acceptedCard) { acceptedCard.hidden = accepted === 0; }
+
+                updateText('[data-adoption-pass-pct]', passPct + '%');
+                updateText('[data-summary-total]', totalControls);
+                updateHtml('[data-summary-pass-text]', '&#9679; ' + summary.global.pass + ' adopted (' + passPct + '%)');
+                updateHtml('[data-summary-fail-text]', '&#9679; ' + summary.global.fail + ' opportunities (' + failPct + '%)');
+                updateHtml('[data-summary-nc-text]', '&#9679; ' + summary.global.notChecked + ' not checked (' + ncPct + '%)');
+
+                var acceptedText = document.querySelector('[data-summary-accepted-text]');
+                if (acceptedText) {
+                    acceptedText.hidden = accepted === 0;
+                    acceptedText.innerHTML = '&nbsp;&#9679; ' + accepted + ' accepted';
+                }
+
+                updateText('[data-org-pass]', summary.org.pass);
+                updateText('[data-org-fail]', summary.org.fail);
+                updateText('[data-org-nc]', summary.org.notChecked);
+
+                Array.prototype.forEach.call(document.querySelectorAll('[data-project-row]'), function (row) {
+                    var projectName = row.getAttribute('data-project-row');
+                    var project = summary.projects[projectName] || { pass: 0, fail: 0, notChecked: 0, accepted: 0 };
+                    var projectTotal = project.pass + project.fail + project.notChecked + project.accepted;
+                    var projectPassPct = projectTotal > 0 ? Math.round((project.pass * 100) / projectTotal) : 0;
+                    var passCell = row.querySelector('[data-project-pass]');
+                    var failCell = row.querySelector('[data-project-fail]');
+                    var ncCell = row.querySelector('[data-project-nc]');
+                    var progress = row.querySelector('[data-project-progress]');
+                    var progressFill = row.querySelector('[data-project-progress-fill]');
+                    var statusCell = row.querySelector('[data-project-status]');
+                    if (passCell) { passCell.textContent = project.pass; }
+                    if (failCell) { failCell.textContent = project.fail; }
+                    if (ncCell) { ncCell.textContent = project.notChecked; }
+                    if (progress) {
+                        progress.setAttribute('aria-valuenow', String(projectPassPct));
+                        progress.setAttribute('aria-label', projectPassPct + ' percent adopted');
+                    }
+                    if (progressFill) { progressFill.style.width = projectPassPct + '%'; }
+                    if (statusCell) { statusCell.innerHTML = renderProjectStatus(project.fail); }
+                });
+
+                var activeRemediations = remediations.filter(function (item) { return !state[item.key]; });
+                var topRemediations = activeRemediations.slice(0, 5);
+                var totalRemediationItems = activeRemediations.reduce(function (sum, item) { return sum + (item.count || 0); }, 0);
+                var topRemediationCount = topRemediations.reduce(function (sum, item) { return sum + (item.count || 0); }, 0);
+                var topRemediationPct = totalRemediationItems > 0 ? Math.round((topRemediationCount * 100) / totalRemediationItems) : 0;
+                updateText('[data-top-remediations-total-count]', totalRemediationItems);
+                updateText('[data-top-remediations-top-count]', topRemediationCount);
+                updateText('[data-top-remediations-top-pct]', topRemediationPct + '%');
+                var topRemediationList = document.querySelector('[data-top-remediations-list]');
+                var topRemediationEmpty = document.querySelector('[data-top-remediations-empty]');
+                if (topRemediationList) {
+                    topRemediationList.innerHTML = topRemediations.map(function (item, index) {
+                        return renderTopRemediationItem(item, index + 1);
+                    }).join('');
+                }
+                if (topRemediationEmpty) { topRemediationEmpty.hidden = topRemediations.length > 0; }
+
+                var hotSpots = Object.keys(summary.projects)
+                    .map(function (projectName) { return { project: projectName, fail: summary.projects[projectName].fail || 0 }; })
+                    .filter(function (project) { return project.fail > 0; })
+                    .sort(function (a, b) { return b.fail - a.fail; })
+                    .slice(0, 10);
+                var hotSpotList = document.querySelector('[data-hot-spots-list]');
+                var hotSpotEmpty = document.querySelector('[data-hot-spots-empty]');
+                if (hotSpotList) {
+                    hotSpotList.innerHTML = hotSpots.map(function (project, index) {
+                        return renderHotSpot(project.project, project.fail, index + 1);
+                    }).join('');
+                }
+                if (hotSpotEmpty) { hotSpotEmpty.hidden = hotSpots.length > 0; }
+            }
+
+            refreshExecutiveSummary();
+            window.addEventListener('storage', refreshExecutiveSummary);
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden) { refreshExecutiveSummary(); }
+            });
+        }());
   </script>
 </body>
 </html>
