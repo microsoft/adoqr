@@ -6238,7 +6238,15 @@ Write-Host ""
 
 Write-Progress -Activity "Assessment" -Completed
 
-# Auto-open the executive report in the default browser
-Start-Process $htmlReportPath
+# Auto-open the executive report in the default browser (cross-platform)
+if ($IsMacOS) {
+    & open $htmlReportPath
+}
+elseif ($IsLinux) {
+    & xdg-open $htmlReportPath
+}
+else {
+    Start-Process $htmlReportPath
+}
 
 #endregion

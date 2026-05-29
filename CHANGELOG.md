@@ -13,6 +13,7 @@ and this project adheres to Semantic Versioning.
 - New bash entry point `invoke-adoqr.sh` for Linux, macOS, WSL, and Git Bash on Windows. Feature-equivalent to `invoke-adoqr.ps1` (Markdown, HTML, JSON outputs; sequential or parallel project execution; run comparison and remediation plan).
 
 ### Fixed
+- Auto-opening the executive HTML report at the end of a run now uses the platform-native opener (`open` on macOS, `xdg-open` on Linux, `Start-Process` on Windows) instead of `Start-Process` for all platforms, which raised `Permission denied` on macOS/Linux because PowerShell tried to execute the `.html` file as a binary.
 - Pipeline Authorization Scope checks now evaluate effective scope using project/org pipeline settings (`enforceJobAuthScope` and `enforceJobAuthScopeForReleases`) before pipeline-level values, preventing false positives when scope is enforced at project level.
 - Organization policy checks now evaluate policy `value` (with safe casing/boolean normalization) and include the new helper functions in parallel runspace serialization, fixing false results for `OAUTH-02` (SSH Access Disabled) and aligning `OAUTH-01` with the actual policy state.
 
