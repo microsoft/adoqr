@@ -4,11 +4,16 @@
 
 # Azure DevOps Quick Review
 
-Azure DevOps Quick Review (**adoqr**) is a PowerShell-based tool that analyzes
-Azure DevOps organizations and projects to evaluate adherence to
-**Azure DevOps best practices** and Microsoft recommendations. It produces a
-comprehensive review of your ADO resources so you can easily identify
-misconfigured settings, gaps, and high-impact areas for improvement.
+Azure DevOps Quick Review (**adoqr**) analyzes Azure DevOps organizations and
+projects to evaluate adherence to **Azure DevOps best practices** and Microsoft
+recommendations. It produces a comprehensive review of your ADO resources so
+you can easily identify misconfigured settings, gaps, and high-impact areas
+for improvement.
+
+adoqr ships as two equivalent entry points — a **PowerShell** script
+(`invoke-adoqr.ps1`) and a **Bash** script (`invoke-adoqr.sh`) — that share
+the same Azure CLI authentication and produce identical Markdown / HTML / JSON
+outputs.
 
 This is a **sister tool to** [GitHub Quick Review (ghqr)](https://github.com/microsoft/ghqr)
 — same idea, same shape of output, but purpose-built for Azure DevOps.
@@ -132,6 +137,9 @@ az login
 
 # 5. Run 5 projects in parallel
 ./invoke-adoqr.sh -o "MyOrg" --max-parallel 5
+
+# 6. Run without auto-opening the executive report in a browser
+ADOQR_NO_OPEN=1 ./invoke-adoqr.sh -o "MyOrg"
 ```
 
 Flags mirror the PowerShell parameters:
@@ -145,6 +153,13 @@ Flags mirror the PowerShell parameters:
 | `-IncludeGraphCheck` | `--include-graph-check` | Cross-check users via Microsoft Graph |
 | `-OutputFormat` | `-f`, `--output-format` | `markdown` \| `html` \| `json` \| `all` (repeat to combine) |
 
+The bash entry point also honours two environment variables:
+
+| Variable | Effect |
+|---|---|
+| `ADOQR_NO_OPEN` | When set (to any value), do not auto-open the executive HTML report at the end of a run. |
+| `NO_COLOR` | When set, disable ANSI colors in console output. |
+
 Run `./invoke-adoqr.sh --help` for the full reference. On first use you may need
 to make the script executable: `chmod +x invoke-adoqr.sh`.
 
@@ -152,7 +167,8 @@ to make the script executable: `chmod +x invoke-adoqr.sh`.
 
 By default adoqr flags repositories and projects as inactive after **180 days**
 without a commit. If you want a different threshold, create a settings file
-named `adoqr.settings.psd1` in the same directory as `invoke-adoqr.ps1`:
+named `adoqr.settings.psd1` in the same directory as the entry-point script.
+Both `invoke-adoqr.ps1` and `invoke-adoqr.sh` read the same file:
 
 ```powershell
 # Copy the example file and uncomment / edit the values you want to change
