@@ -10,6 +10,7 @@ and this project adheres to Semantic Versioning.
 ### Added
 - Executive summary now includes an Organization Extensions section that lists all extensions with Installed vs Default classification and installed-first ordering.
 - Top navigation now includes an Extensions anchor placed before Run Comparison for faster access to extension findings.
+- New bash entry point `invoke-adoqr.sh` for Linux, macOS, WSL, and Git Bash on Windows. Feature-equivalent to `invoke-adoqr.ps1` (Markdown, HTML, JSON outputs; sequential or parallel project execution; run comparison and remediation plan).
 
 ### Fixed
 - Pipeline Authorization Scope checks now evaluate effective scope using project/org pipeline settings (`enforceJobAuthScope` and `enforceJobAuthScopeForReleases`) before pipeline-level values, preventing false positives when scope is enforced at project level.

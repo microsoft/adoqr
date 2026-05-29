@@ -65,11 +65,25 @@ The folder contains:
 
 ### Prerequisites
 
-- [PowerShell](https://docs.microsoft.com/powershell/) 5.0+ (PowerShell 7+ recommended for parallel execution)
+adoqr ships as two equivalent entry points — pick whichever fits your shell.
+Both use the same Azure CLI bearer token, write the same report files, and
+produce identical Markdown / HTML / JSON outputs.
+
+**Common requirements**
+
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) v2.81.0+
-- Azure DevOps Azure CLI extension (`azure-devops`) - installed automatically on first run if missing
+- Azure DevOps Azure CLI extension (`azure-devops`) — installed automatically on first run if missing
 - An Azure CLI session authenticated with access to the target ADO organization (`az login`)
 - [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) extension for VS Code (optional, for skill-assisted workflows)
+
+**For the PowerShell entry point (`invoke-adoqr.ps1`)**
+
+- [PowerShell](https://docs.microsoft.com/powershell/) 5.0+ (PowerShell 7+ recommended for parallel execution)
+
+**For the bash entry point (`invoke-adoqr.sh`)**
+
+- Bash 4+ (Linux, macOS, WSL, or [Git Bash](https://git-scm.com/downloads) on Windows)
+- `jq` and `curl` on the `PATH`
 
 ### Clone Repository
 
@@ -96,6 +110,43 @@ completes.
 
 If the Azure DevOps Azure CLI extension is not already installed, adoqr
 installs it automatically before the review starts.
+
+### Run Bash Script
+
+`invoke-adoqr.sh` is a feature-equivalent bash port of `invoke-adoqr.ps1` for
+Linux, macOS, WSL, and Git Bash on Windows. It uses the same Azure CLI session
+for authentication and writes reports to the same `assessments/` layout.
+
+```bash
+# 1. Sign in
+az login
+
+# 2. Review an organization
+./invoke-adoqr.sh --organization "MyOrg"
+
+# 3. Review specific projects only
+./invoke-adoqr.sh --organization "MyOrg" --project "WebApp" --project "API"
+
+# 4. Generate Markdown + HTML + JSON
+./invoke-adoqr.sh -o "MyOrg" -f all
+
+# 5. Run 5 projects in parallel
+./invoke-adoqr.sh -o "MyOrg" --max-parallel 5
+```
+
+Flags mirror the PowerShell parameters:
+
+| PowerShell | Bash | Description |
+|---|---|---|
+| `-Organization` | `-o`, `--organization` | Organization short name or full URL |
+| `-Project` | `-p`, `--project` | Project name (repeat for multiple) |
+| `-OutputPath` | `-O`, `--output-path` | Output directory (default `./assessments`) |
+| `-MaxParallel` | `--max-parallel` | Concurrent project workers (1–20) |
+| `-IncludeGraphCheck` | `--include-graph-check` | Cross-check users via Microsoft Graph |
+| `-OutputFormat` | `-f`, `--output-format` | `markdown` \| `html` \| `json` \| `all` (repeat to combine) |
+
+Run `./invoke-adoqr.sh --help` for the full reference. On first use you may need
+to make the script executable: `chmod +x invoke-adoqr.sh`.
 
 ### Configuration File (optional)
 
