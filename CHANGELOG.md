@@ -12,6 +12,7 @@ and this project adheres to Semantic Versioning.
 - Top navigation now includes an Extensions anchor placed before Run Comparison for faster access to extension findings.
 
 ### Fixed
+- `scripts/install.sh` now creates the shell rc file's parent directory before appending the PATH entry, so installation no longer fails on a fresh setup where the directory (e.g. `~/.config/fish`) does not yet exist.
 - Auto-opening the executive HTML report at the end of a run now uses the platform-native opener (`open` on macOS, `xdg-open` on Linux, `Start-Process` on Windows) instead of `Start-Process` for all platforms, which raised `Permission denied` on macOS/Linux because PowerShell tried to execute the `.html` file as a binary.
 - Pipeline Authorization Scope checks now evaluate effective scope using project/org pipeline settings (`enforceJobAuthScope` and `enforceJobAuthScopeForReleases`) before pipeline-level values, preventing false positives when scope is enforced at project level.
 - Organization policy checks now evaluate policy `value` (with safe casing/boolean normalization) and include the new helper functions in parallel runspace serialization, fixing false results for `OAUTH-02` (SSH Access Disabled) and aligning `OAUTH-01` with the actual policy state.

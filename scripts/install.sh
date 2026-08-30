@@ -85,6 +85,9 @@ if [[ "${ADOQR_NO_PATH:-0}" != "1" ]]; then
             if [[ -f "$RC" ]] && grep -q "adoqr" "$RC" 2>/dev/null; then
                 info "PATH      : entry already present in $RC"
             else
+                # Ensure the rc file's directory exists (e.g. ~/.config/fish on
+                # a fresh setup) so the append below cannot fail.
+                mkdir -p "$(dirname "$RC")"
                 if [[ "$SHELL_NAME" == "fish" ]]; then
                     echo "set -gx PATH $INSTALL_DIR \$PATH  # adoqr" >> "$RC"
                 else

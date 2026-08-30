@@ -45,5 +45,11 @@
         # prior scan files — corrupt, unreadable, or schema-invalid files
         # should be skipped without surfacing noise to the user.
         'PSAvoidUsingEmptyCatchBlock'
+
+        # The repo's .psd1 files are PowerShell *data* files — a settings
+        # example (adoqr.settings.example.psd1) and the remediation-steps data
+        # table — not module manifests, so this rule only ever fires as a false
+        # positive here.
+        'PSMissingModuleManifestField'
     )
 }
