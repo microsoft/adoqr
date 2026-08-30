@@ -14,7 +14,10 @@
 .PARAMETER Project
     Optional. One or more project names. If omitted, all projects are assessed.
 .PARAMETER OutputPath
-    Directory for report files. Defaults to current directory.
+    Directory for report files. When omitted, falls back to the
+    ADOQR_OUTPUT_PATH environment variable if it is set (the Docker image uses
+    this to target its /reports volume), otherwise an "assessments" folder next
+    to this script. Each run writes to a timestamped subfolder under it.
 .PARAMETER MaxParallel
     Maximum concurrency for project assessment. Default 3.
     Requires PowerShell 7+ for parallel execution. Values 2-4 recommended to avoid ADO rate limiting.
@@ -5529,6 +5532,36 @@ function Import-AdoqrSettings {
     return $settings
 }
 
+function Resolve-AdoqrOutputPath {
+    <#
+    .SYNOPSIS
+        Resolves the effective report output directory.
+    .DESCRIPTION
+        Applies the output-directory precedence: an explicit -OutputPath
+        argument wins; otherwise the ADOQR_OUTPUT_PATH environment variable is
+        honored when set (this is how the Docker image points reports at its
+        /reports volume); otherwise the supplied default is used. Empty or
+        whitespace-only values are treated as "not provided".
+    .PARAMETER ExplicitPath
+        The value passed via -OutputPath, or $null/empty when the caller did
+        not specify it.
+    .PARAMETER EnvPath
+        The ADOQR_OUTPUT_PATH environment variable value (may be $null/empty).
+    .PARAMETER DefaultPath
+        Fallback directory when neither of the above is provided.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$ExplicitPath,
+        [string]$EnvPath,
+        [string]$DefaultPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitPath)) { return $ExplicitPath }
+    if (-not [string]::IsNullOrWhiteSpace($EnvPath))      { return $EnvPath }
+    return $DefaultPath
+}
+
 #endregion
 
 #region Main
@@ -5554,6 +5587,13 @@ $script:VsspsUrl   = "https://vssps.dev.azure.com/$OrgShortName"
 $script:ExtMgmtUrl = "https://extmgmt.dev.azure.com/$OrgShortName"
 $script:AuditUrl   = "https://auditservice.dev.azure.com/$OrgShortName"
 $script:FeedsUrl   = "https://feeds.dev.azure.com/$OrgShortName"
+
+# Resolve the effective output directory.
+# Precedence: -OutputPath argument > $env:ADOQR_OUTPUT_PATH > assessments/ next
+# to the script. Honoring ADOQR_OUTPUT_PATH lets the Docker image direct reports
+# to its mounted /reports volume without callers having to pass -OutputPath.
+$explicitOutputPath = if ($PSBoundParameters.ContainsKey('OutputPath')) { $OutputPath } else { $null }
+$OutputPath = Resolve-AdoqrOutputPath -ExplicitPath $explicitOutputPath -EnvPath $env:ADOQR_OUTPUT_PATH -DefaultPath (Join-Path $PSScriptRoot 'assessments')
 
 # Ensure output directory exists — create timestamped subfolder per run
 $timestamp = Get-Date -Format "yyyy-MM-dd-HHmmss"

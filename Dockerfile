@@ -5,7 +5,11 @@
 #     -v $(pwd)/reports:/reports \
 #     -v $HOME/.azure:/root/.azure \
 #     ghcr.io/microsoft/adoqr:latest \
-#     -Organization MyOrg -OutputPath /reports -OutputFormat all
+#     -Organization MyOrg -OutputFormat all
+#
+# Reports are written to /reports by default via the ADOQR_OUTPUT_PATH env var
+# set below, which is exposed as a volume — bind-mount a host path to keep them
+# after the container exits. Pass -OutputPath to override the destination.
 #
 # To authenticate non-interactively, mount your existing Azure CLI profile
 # (~/.azure) into the container as shown above, or run `az login` inside the

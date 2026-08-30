@@ -35,6 +35,7 @@ $wantedFns = @(
     'Get-AdoqrHeaderCss'
     'Get-AdoqrHeaderHtml'
     'Import-AdoqrSettings'
+    'Resolve-AdoqrOutputPath'
 )
 
 $funcs = $tree.FindAll({
