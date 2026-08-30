@@ -8,6 +8,7 @@ and this project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- Experimental Azure DevOps Server (on-prem) URL handling: organization/collection input is now routed through a single, tested `Resolve-AdoApiHosts` helper that derives the graph/extension/audit/feeds API hosts. Cloud behavior is unchanged; on-prem collection URLs derive collection-relative hosts. NOTE: on-prem authentication (PAT) and Services-only checks are not yet supported — see issue #12.
 - Executive summary now includes an Organization Extensions section that lists all extensions with Installed vs Default classification and installed-first ordering.
 - Top navigation now includes an Extensions anchor placed before Run Comparison for faster access to extension findings.
 

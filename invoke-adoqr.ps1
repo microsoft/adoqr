@@ -5529,6 +5529,78 @@ function Import-AdoqrSettings {
     return $settings
 }
 
+function Resolve-AdoApiHosts {
+    <#
+    .SYNOPSIS
+        Derives the organization URL plus the specialized ADO REST API host URLs
+        from the -Organization input.
+    .DESCRIPTION
+        Azure DevOps Services (cloud) serves several APIs from dedicated
+        subdomains keyed by org short name: vssps (graph/identity), extmgmt
+        (extensions), auditservice (audit log), and feeds (packaging). Azure
+        DevOps Server (on-premises) has no such subdomains — those APIs are
+        served collection-relative under the same host. Centralizing the mapping
+        here keeps the rest of the script host-agnostic.
+
+        EXPERIMENTAL: on-prem support here covers URL derivation only. It does
+        NOT yet solve authentication — the script still acquires an Entra ID
+        (AAD) bearer token via `az account get-access-token`, which a typical
+        on-prem deployment will not accept (those use PAT/Windows auth). Some
+        controls (e.g. audit log streaming) are Services-only features with no
+        on-prem equivalent and are expected to report NOT CHECKED. See issue #12.
+    .PARAMETER Organization
+        The -Organization value: a short name, a cloud org URL
+        (https://dev.azure.com/org or https://org.visualstudio.com), or an
+        on-prem collection URL (e.g. https://server/tfs/DefaultCollection).
+    .OUTPUTS
+        Hashtable with keys OrgUrl, OrgShortName, VsspsUrl, ExtMgmtUrl,
+        AuditUrl, FeedsUrl, and IsOnPrem.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Organization
+    )
+
+    # A bare short name always refers to the cloud service.
+    if ($Organization -notmatch '^https?://') {
+        $orgUrl = "https://dev.azure.com/$Organization"
+    }
+    else {
+        $orgUrl = $Organization.TrimEnd('/')
+    }
+
+    $isCloud = ($orgUrl -match '^https?://dev\.azure\.com/') -or
+               ($orgUrl -match '^https?://[^/]+\.visualstudio\.com')
+
+    if ($isCloud) {
+        $orgShortName = $orgUrl -replace '^https?://dev\.azure\.com/', '' -replace '^https?://([^.]+)\.visualstudio\.com.*', '$1'
+        return @{
+            OrgUrl       = $orgUrl
+            OrgShortName = $orgShortName
+            VsspsUrl     = "https://vssps.dev.azure.com/$orgShortName"
+            ExtMgmtUrl   = "https://extmgmt.dev.azure.com/$orgShortName"
+            AuditUrl     = "https://auditservice.dev.azure.com/$orgShortName"
+            FeedsUrl     = "https://feeds.dev.azure.com/$orgShortName"
+            IsOnPrem     = $false
+        }
+    }
+
+    # On-prem Azure DevOps Server: graph and packaging APIs are collection-
+    # relative under the same host, so the collection URL is the base for all of
+    # them. Extension management and audit have no standard on-prem endpoint, so
+    # reuse the collection URL and let those specific checks degrade gracefully.
+    $orgShortName = ($orgUrl -split '/') | Where-Object { $_ } | Select-Object -Last 1
+    return @{
+        OrgUrl       = $orgUrl
+        OrgShortName = $orgShortName
+        VsspsUrl     = $orgUrl
+        ExtMgmtUrl   = $orgUrl
+        AuditUrl     = $orgUrl
+        FeedsUrl     = $orgUrl
+        IsOnPrem     = $true
+    }
+}
+
 #endregion
 
 #region Main
@@ -5540,20 +5612,21 @@ if ($_userSettings.ContainsKey('InactiveRepoDays')) {
     Write-Verbose "Settings: InactiveRepoDays overridden to $($script:InactiveRepoDays) (from adoqr.settings.psd1)"
 }
 
-# Normalize organization URL
-if ($Organization -notmatch '^https?://') {
-    $OrgUrl = "https://dev.azure.com/$Organization"
-} else {
-    $OrgUrl = $Organization.TrimEnd('/')
+# Normalize organization URL and derive the specialized ADO REST API hosts.
+# Cloud uses dedicated subdomains; on-prem Azure DevOps Server serves them
+# collection-relative (experimental — see Resolve-AdoApiHosts and issue #12).
+$adoHosts          = Resolve-AdoApiHosts -Organization $Organization
+$OrgUrl            = $adoHosts.OrgUrl
+$OrgShortName      = $adoHosts.OrgShortName
+$script:VsspsUrl   = $adoHosts.VsspsUrl
+$script:ExtMgmtUrl = $adoHosts.ExtMgmtUrl
+$script:AuditUrl   = $adoHosts.AuditUrl
+$script:FeedsUrl   = $adoHosts.FeedsUrl
+$script:IsOnPrem   = $adoHosts.IsOnPrem
+
+if ($script:IsOnPrem) {
+    Write-Warning "On-prem Azure DevOps Server URL detected ($OrgUrl). On-prem support is experimental: authentication still uses an Entra ID token via 'az login' (typically rejected on-prem), and Services-only checks such as audit log streaming will report NOT CHECKED. See https://github.com/microsoft/adoqr/issues/12."
 }
-
-$OrgShortName = $OrgUrl -replace '^https?://dev\.azure\.com/', '' -replace '^https?://([^.]+)\.visualstudio\.com.*', '$1'
-
-# Subdomain URLs for specialized ADO REST APIs
-$script:VsspsUrl   = "https://vssps.dev.azure.com/$OrgShortName"
-$script:ExtMgmtUrl = "https://extmgmt.dev.azure.com/$OrgShortName"
-$script:AuditUrl   = "https://auditservice.dev.azure.com/$OrgShortName"
-$script:FeedsUrl   = "https://feeds.dev.azure.com/$OrgShortName"
 
 # Ensure output directory exists — create timestamped subfolder per run
 $timestamp = Get-Date -Format "yyyy-MM-dd-HHmmss"
