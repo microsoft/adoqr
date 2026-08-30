@@ -203,6 +203,26 @@ assessment concurrently at three levels:
 Falls back to sequential execution automatically on PowerShell 5.1 or when
 only one project is being assessed.
 
+### Scheduled Assessments
+
+To get a recurring, archived posture review without running the tool by hand,
+schedule it as an Azure DevOps pipeline. A ready-to-use sample lives at
+[`examples/azure-pipelines.yml`](examples/azure-pipelines.yml): it runs adoqr on
+a cron schedule and publishes the reports (Markdown + executive/remediation HTML
++ JSON) as a pipeline artifact.
+
+1. Import it as a new pipeline (**Pipelines ▸ New pipeline ▸ Existing Azure
+   Pipelines YAML file**) and point it at `/examples/azure-pipelines.yml`.
+2. Create an ARM **service connection** and grant its service principal access
+   to the target organization (**Organization settings ▸ Users**, at least
+   *Project Collection Valid Users*). The pipeline signs in with it via the
+   `AzureCLI@2` task, so adoqr obtains an Azure DevOps token with no PAT needed.
+3. Set the `organization` parameter (and optionally `projects`, `maxParallel`,
+   `outputFormat`) and adjust the `cron` schedule.
+
+The sample defaults to a weekly run (Mondays 06:00 UTC) and sets
+`ADOQR_NO_OPEN=1` so the agent never tries to open a browser.
+
 ## Troubleshooting
 
 ### Common Issues

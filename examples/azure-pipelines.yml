@@ -1,0 +1,116 @@
+# ---------------------------------------------------------------------------
+# adoqr — scheduled Azure DevOps best-practice assessment
+# ---------------------------------------------------------------------------
+# Runs invoke-adoqr.ps1 on a schedule and publishes the generated reports
+# (Markdown + executive/remediation HTML + JSON) as a pipeline artifact, so you
+# get a recurring, archived posture review without anyone running the tool by
+# hand.
+#
+# SETUP
+#   1. Import this file as a new pipeline (Pipelines ▸ New pipeline ▸
+#      "Existing Azure Pipelines YAML file" ▸ /examples/azure-pipelines.yml).
+#   2. Create an ARM service connection (Project settings ▸ Service connections)
+#      and grant its service principal access to the Azure DevOps organization
+#      you want to assess:
+#        - Add the SP as a member of the org (Organization settings ▸ Users)
+#          with at least "Project Collection Valid Users"; use "Project
+#          Collection Administrators" for full admin/audit coverage.
+#   3. Set the pipeline variables below (Edit ▸ Variables), or override them at
+#      queue time via the parameters.
+#
+# AUTHENTICATION
+#   The AzureCLI@2 task signs in with the service connection, so adoqr's
+#   `az account get-access-token` call obtains an Azure DevOps bearer token with
+#   no PAT required — the same auth path as an interactive `az login`.
+#
+# SCHEDULE
+#   The cron below runs every Monday at 06:00 UTC. `always: true` makes it run
+#   even when main has not changed since the last assessment. Adjust as needed:
+#   https://learn.microsoft.com/azure/devops/pipelines/process/scheduled-triggers
+# ---------------------------------------------------------------------------
+
+# Schedule-only: do not run on pushes or pull requests.
+trigger: none
+pr: none
+
+schedules:
+  - cron: '0 6 * * 1'           # 06:00 UTC every Monday
+    displayName: Weekly adoqr assessment
+    branches:
+      include:
+        - main
+    always: true
+
+parameters:
+  - name: organization
+    displayName: ADO organization (URL or short name)
+    type: string
+    default: 'https://dev.azure.com/MyOrg'
+  - name: projects
+    displayName: Projects (space-separated; empty = all projects)
+    type: string
+    default: ''
+  - name: maxParallel
+    displayName: Max projects assessed concurrently
+    type: number
+    default: 3
+  - name: outputFormat
+    displayName: Output format
+    type: string
+    default: 'all'
+    values:
+      - markdown
+      - html
+      - json
+      - all
+
+variables:
+  # Name of the ARM service connection authorized against the target ADO org.
+  azureServiceConnection: 'adoqr-assessment'
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    displayName: Check out adoqr
+
+  - task: AzureCLI@2
+    displayName: Run adoqr assessment
+    env:
+      # No interactive browser on a build agent; don't try to auto-open the
+      # report. adoqr also auto-detects CI via TF_BUILD, so this is belt-and-
+      # suspenders for self-hosted agents that don't set it.
+      ADOQR_NO_OPEN: '1'
+    inputs:
+      azureSubscription: $(azureServiceConnection)
+      scriptType: pscore
+      scriptLocation: inlineScript
+      inlineScript: |
+        $ErrorActionPreference = 'Stop'
+
+        # Ensure the Azure DevOps CLI extension is present (adoqr also installs
+        # it automatically, but doing it here keeps the assessment output clean).
+        az extension add --name azure-devops --only-show-errors --output none 2>$null
+
+        # Build argument list. Splatting keeps optional args (projects) clean.
+        $adoqrArgs = @{
+            Organization = '${{ parameters.organization }}'
+            MaxParallel  = ${{ parameters.maxParallel }}
+            OutputFormat = '${{ parameters.outputFormat }}'
+            OutputPath   = '$(Build.ArtifactStagingDirectory)'
+        }
+
+        $projects = '${{ parameters.projects }}'.Trim()
+        if ($projects) {
+            $adoqrArgs.Project = $projects -split '\s+'
+        }
+
+        ./invoke-adoqr.ps1 @adoqrArgs
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish assessment reports
+    condition: always()
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)
+      artifactName: adoqr-assessment

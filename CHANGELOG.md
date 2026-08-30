@@ -8,6 +8,7 @@ and this project adheres to Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- Sample scheduled Azure DevOps pipeline (`examples/azure-pipelines.yml`) that runs adoqr on a cron schedule and publishes the reports as a pipeline artifact, with setup docs in the README.
 - Executive summary now includes an Organization Extensions section that lists all extensions with Installed vs Default classification and installed-first ordering.
 - Top navigation now includes an Extensions anchor placed before Run Comparison for faster access to extension findings.
 
