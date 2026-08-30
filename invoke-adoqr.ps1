@@ -5529,6 +5529,31 @@ function Import-AdoqrSettings {
     return $settings
 }
 
+function Test-ShouldAutoOpenReport {
+    <#
+    .SYNOPSIS
+        Decides whether the executive report should auto-open in a browser.
+    .DESCRIPTION
+        Auto-opening is meaningful only in an interactive desktop session. It is
+        suppressed when explicitly disabled via ADOQR_NO_OPEN or when running in
+        a non-interactive automation context (CI, scheduled pipelines,
+        containers), where launching a browser has no effect and can surface a
+        missing-opener error. ADOQR_NO_OPEN mirrors the Bash entry point.
+    .PARAMETER EnvironmentVariables
+        Hashtable of relevant environment variables (ADOQR_NO_OPEN, TF_BUILD,
+        CI). Injected for testability; callers pass the live $env: values.
+    #>
+    [CmdletBinding()]
+    param(
+        [hashtable]$EnvironmentVariables = @{}
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($EnvironmentVariables['ADOQR_NO_OPEN'])) { return $false }  # explicit opt-out
+    if (-not [string]::IsNullOrWhiteSpace($EnvironmentVariables['TF_BUILD']))      { return $false }  # Azure Pipelines
+    if (-not [string]::IsNullOrWhiteSpace($EnvironmentVariables['CI']))            { return $false }  # GitHub Actions & most CIs
+    return $true
+}
+
 #endregion
 
 #region Main
@@ -6238,15 +6263,33 @@ Write-Host ""
 
 Write-Progress -Activity "Assessment" -Completed
 
-# Auto-open the executive report in the default browser (cross-platform)
-if ($IsMacOS) {
-    & open $htmlReportPath
+# Auto-open the executive report in the default browser (cross-platform).
+# Skipped in non-interactive contexts (ADOQR_NO_OPEN, CI, scheduled pipelines,
+# containers); wrapped so a missing or failing opener never turns a successful
+# assessment into a fatal error.
+$openEnv = @{
+    ADOQR_NO_OPEN = $env:ADOQR_NO_OPEN
+    TF_BUILD      = $env:TF_BUILD
+    CI            = $env:CI
 }
-elseif ($IsLinux) {
-    & xdg-open $htmlReportPath
+if (Test-ShouldAutoOpenReport -EnvironmentVariables $openEnv) {
+    try {
+        if ($IsMacOS) {
+            & open $htmlReportPath
+        }
+        elseif ($IsLinux) {
+            & xdg-open $htmlReportPath
+        }
+        else {
+            Start-Process $htmlReportPath
+        }
+    }
+    catch {
+        Write-Verbose "Could not auto-open the executive report: $($_.Exception.Message)"
+    }
 }
 else {
-    Start-Process $htmlReportPath
+    Write-Verbose "Auto-open suppressed (ADOQR_NO_OPEN set or non-interactive/CI environment). Report: $htmlReportPath"
 }
 
 #endregion

@@ -92,7 +92,8 @@ az login
 
 Reports are saved to a timestamped subfolder under `assessments/`. The
 executive HTML summary auto-opens in your browser when the assessment
-completes.
+completes. Auto-opening is skipped automatically in CI and other
+non-interactive environments; set `ADOQR_NO_OPEN=1` to suppress it anywhere.
 
 If the Azure DevOps Azure CLI extension is not already installed, adoqr
 installs it automatically before the review starts.
